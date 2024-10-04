@@ -290,6 +290,12 @@ github.com/onsi/gomega v1.27.4/go.mod h1:riYq/GJKh8hhoM01HN6Vmuy93AarCXCBGpvFDK3
 github.com/onsi/gomega v1.27.6/go.mod h1:PIQNjfQwkP3aQAH7lf7j87O/5FiNr+ZR8+ipb+qQlhg=
 github.com/onsi/gomega v1.30.0 h1:hvMK7xYz4D3HapigLTeGdId/NcfQx1VHMJc60ew99+8=
 github.com/onsi/gomega v1.30.0/go.mod h1:9sxs+SwGrKI0+PWe4Fxa9tFQQBG5xSsSbMXOI8PPpoQ=
+github.com/openshift-kni/oran-o2ims/api/hardwaremanagement v0.0.0-20241003203903-277d9878da2e h1:ygBi5ZupCHJOxHvYTLGO6foHTzXeOxF3YCtvtBzBzbw=
+github.com/openshift-kni/oran-o2ims/api/hardwaremanagement v0.0.0-20241003203903-277d9878da2e/go.mod h1:owBMlvtNeWmBGKEdusRCmtIxdxBIFinYlCpaVRfYSoo=
+github.com/openshift-kni/oran-o2ims/api/inventory v0.0.0-20241003203903-277d9878da2e h1:RnQIR/h6eSEnhaCp5KyhSsydzvKMyykdx3eDEkMowhc=
+github.com/openshift-kni/oran-o2ims/api/inventory v0.0.0-20241003203903-277d9878da2e/go.mod h1:f70IjXspApzpaY7g2C5l980G0qcEmxEOCHBMurwiYG4=
+github.com/openshift-kni/oran-o2ims/api/provisioning v0.0.0-20241003203903-277d9878da2e h1:MP+sE52edvxoqAc0H6ehn3MToqnBXQwq8ofB7Q+B+5g=
+github.com/openshift-kni/oran-o2ims/api/provisioning v0.0.0-20241003203903-277d9878da2e/go.mod h1:Sw8DNDkwy8yJhBPkp9M4O+7pTLOON95r8Gp8yg4EMiM=
 github.com/openshift/api v0.0.0-20240124164020-e2ce40831f2e h1:cxgCNo/R769CO23AK5TCh45H9SMUGZ8RukiF2/Qif3o=
 github.com/openshift/api v0.0.0-20240124164020-e2ce40831f2e/go.mod h1:CxgbWAlvu2iQB0UmKTtRu1YfepRg1/vJ64n2DlIEVz4=
 github.com/openshift/assisted-service/api v0.0.0-20240405132132-484ec5c683c6 h1:kGb1so4CDjacpOkGWN7i2QsTgYWB/oJxZblU9C1+4os=

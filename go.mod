@@ -22,9 +22,9 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/onsi/ginkgo/v2 v2.14.0
 	github.com/onsi/gomega v1.30.0
-	github.com/openshift-kni/oran-o2ims/api/hardwaremanagement v0.0.0-20241001130125-a052f08603f7
-	github.com/openshift-kni/oran-o2ims/api/inventory v0.0.0-00010101000000-000000000000
-	github.com/openshift-kni/oran-o2ims/api/provisioning v0.0.0-00010101000000-000000000000
+	github.com/openshift-kni/oran-o2ims/api/hardwaremanagement v0.0.0-20241003203903-277d9878da2e
+	github.com/openshift-kni/oran-o2ims/api/inventory v0.0.0-20241003203903-277d9878da2e
+	github.com/openshift-kni/oran-o2ims/api/provisioning v0.0.0-20241003203903-277d9878da2e
 	github.com/openshift/assisted-service/api v0.0.0-20240405132132-484ec5c683c6
 	github.com/peterhellberg/link v1.2.0
 	github.com/prometheus/client_golang v1.18.0
@@ -122,9 +122,3 @@ require (
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 )
-
-replace github.com/openshift-kni/oran-o2ims/api/hardwaremanagement => ./api/hardwaremanagement
-
-replace github.com/openshift-kni/oran-o2ims/api/inventory => ./api/inventory
-
-replace github.com/openshift-kni/oran-o2ims/api/provisioning => ./api/provisioning
