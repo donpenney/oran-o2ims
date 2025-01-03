@@ -98,7 +98,7 @@ type Node struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   NodeSpec   `json:"spec,omitempty"`
+	Spec   NodeSpec   `json:"spec"`
 	Status NodeStatus `json:"status,omitempty"`
 }
 
