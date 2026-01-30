@@ -530,6 +530,22 @@ func handleNodeInProgressUpdate(ctx context.Context,
 			return ctrl.Result{}, err
 		}
 
+		// Clear BMH update annotations to ensure clean state for retry
+		if err := clearBMHUpdateAnnotations(ctx, c, logger, bmh); err != nil {
+			logger.WarnContext(ctx, "Failed to clear BMH update annotations after error",
+				slog.String("BMH", bmh.Name),
+				slog.String("error", err.Error()))
+			return ctrl.Result{}, fmt.Errorf("failed to clear BMH update annotations %s:%w", bmh.Name, err)
+		}
+
+		// Clear firmware spec fields to ensure metal3 sees changes on retry
+		if err := clearFirmwareSpecFields(ctx, c, logger, bmh); err != nil {
+			logger.WarnContext(ctx, "Failed to clear firmware spec fields after error",
+				slog.String("BMH", bmh.Name),
+				slog.String("error", err.Error()))
+			// Don't return error - best effort cleanup, continue to set node status
+		}
+
 		if err := hwmgrutils.SetNodeConditionStatus(ctx, c, noncachedClient,
 			node.Name, node.Namespace,
 			string(hwmgmtv1alpha1.Configured), metav1.ConditionFalse,
@@ -1330,6 +1346,55 @@ func clearBMHUpdateAnnotationsForNAR(
 	if len(errs) > 0 {
 		// Use errors.Join to preserve all errors for better debugging
 		return fmt.Errorf("failed to clear BMH update annotations for NodeAllocationRequest %s (%d error(s)): %w",
+			nodeAllocationRequest.Name, len(errs), errors.Join(errs...))
+	}
+
+	return nil
+}
+
+// clearFirmwareSpecFieldsForNAR clears firmware spec fields (HostFirmwareComponents.Spec.Updates
+// and HostFirmwareSettings.Spec.Settings) for all BMHs associated with the provided NodeAllocationRequest.
+// This ensures metal3 will detect changes on retry after timeout or failure.
+func clearFirmwareSpecFieldsForNAR(
+	ctx context.Context,
+	c client.Client,
+	logger *slog.Logger,
+	nodeAllocationRequest *pluginsv1alpha1.NodeAllocationRequest,
+) error {
+	logger.InfoContext(ctx, "Clearing firmware spec fields for NodeAllocationRequest",
+		slog.String("nodeAllocationRequest", nodeAllocationRequest.Name))
+
+	nodeList, err := hwmgrutils.GetChildNodes(ctx, logger, c, nodeAllocationRequest)
+	if err != nil {
+		return fmt.Errorf("failed to get AllocatedNodes for NodeAllocationRequest %s: %w", nodeAllocationRequest.Name, err)
+	}
+
+	var errs []error
+	for _, node := range nodeList.Items {
+		// Get BMH for this node
+		bmh, err := getBMHForNode(ctx, c, &node)
+		if err != nil {
+			logger.ErrorContext(ctx, "Failed to get BMH for firmware spec clear",
+				slog.String("allocatedNode", node.Name), slog.String("error", err.Error()))
+			errs = append(errs, fmt.Errorf("failed to get BMH for AllocatedNode %s: %w", node.Name, err))
+			continue
+		}
+
+		// Clear firmware spec fields from BMH
+		if err := clearFirmwareSpecFields(ctx, c, logger, bmh); err != nil {
+			logger.WarnContext(ctx, "Failed to clear firmware spec fields",
+				slog.String("bmh", bmh.Name),
+				slog.String("error", err.Error()))
+			errs = append(errs, fmt.Errorf("failed to clear firmware spec fields for BMH %s: %w", bmh.Name, err))
+		} else {
+			logger.InfoContext(ctx, "Cleared firmware spec fields",
+				slog.String("bmh", bmh.Name))
+		}
+	}
+
+	if len(errs) > 0 {
+		// Use errors.Join to preserve all errors for better debugging
+		return fmt.Errorf("failed to clear firmware spec fields for NodeAllocationRequest %s (%d error(s)): %w",
 			nodeAllocationRequest.Name, len(errs), errors.Join(errs...))
 	}
 

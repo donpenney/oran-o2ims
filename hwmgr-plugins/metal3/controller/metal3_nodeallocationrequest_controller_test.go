@@ -21,14 +21,18 @@ Key Test Areas:
 package controller
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"time"
 
+	metal3v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -372,6 +376,190 @@ var _ = Describe("Metal3 NodeAllocationRequest Controller Timeout Handling", fun
 				Expect(timeoutExceeded).To(BeFalse())
 				Expect(conditionType).To(Equal(hwmgmtv1alpha1.ConditionType("")))
 			})
+		})
+	})
+
+	// Integration-style test for firmware spec cleanup on timeout
+	// Note: This uses a fake client, so it doesn't fully test the reconciliation loop,
+	// but it verifies the cleanup logic is called correctly
+	Describe("Configuration timeout firmware spec cleanup", Ordered, func() {
+		var (
+			ctx        context.Context
+			nar        *pluginsv1alpha1.NodeAllocationRequest
+			node1      *pluginsv1alpha1.AllocatedNode
+			node2      *pluginsv1alpha1.AllocatedNode
+			bmh1       *metal3v1alpha1.BareMetalHost
+			bmh2       *metal3v1alpha1.BareMetalHost
+			hfc1       *metal3v1alpha1.HostFirmwareComponents
+			hfc2       *metal3v1alpha1.HostFirmwareComponents
+			hfs1       *metal3v1alpha1.HostFirmwareSettings
+			hfs2       *metal3v1alpha1.HostFirmwareSettings
+			testClient client.Client
+		)
+
+		BeforeAll(func() {
+			ctx = context.Background()
+
+			// Create scheme with all types
+			scheme := runtime.NewScheme()
+			Expect(pluginsv1alpha1.AddToScheme(scheme)).To(Succeed())
+			Expect(metal3v1alpha1.AddToScheme(scheme)).To(Succeed())
+
+			// Create NAR that has timed out during configuration
+			nar = &pluginsv1alpha1.NodeAllocationRequest{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-nar-timeout",
+					Namespace: "test-ns",
+				},
+				Spec: pluginsv1alpha1.NodeAllocationRequestSpec{
+					HardwareProvisioningTimeout: "5m",
+				},
+				Status: pluginsv1alpha1.NodeAllocationRequestStatus{
+					// Set start time to 10 minutes ago (timed out)
+					HardwareOperationStartTime: &metav1.Time{Time: time.Now().Add(-10 * time.Minute)},
+					Conditions: []metav1.Condition{
+						{
+							Type:   string(hwmgmtv1alpha1.Provisioned),
+							Status: metav1.ConditionTrue,
+							Reason: string(hwmgmtv1alpha1.Completed),
+						},
+						{
+							Type:   string(hwmgmtv1alpha1.Configured),
+							Status: metav1.ConditionFalse,
+							Reason: string(hwmgmtv1alpha1.InProgress),
+						},
+					},
+				},
+			}
+
+			// Create two nodes
+			node1 = &pluginsv1alpha1.AllocatedNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node1",
+					Namespace: "test-ns",
+				},
+				Spec: pluginsv1alpha1.AllocatedNodeSpec{
+					NodeAllocationRequest: "test-nar-timeout",
+					HwMgrNodeId:           "bmh1",
+					HwMgrNodeNs:           "test-ns",
+				},
+			}
+
+			node2 = &pluginsv1alpha1.AllocatedNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node2",
+					Namespace: "test-ns",
+				},
+				Spec: pluginsv1alpha1.AllocatedNodeSpec{
+					NodeAllocationRequest: "test-nar-timeout",
+					HwMgrNodeId:           "bmh2",
+					HwMgrNodeNs:           "test-ns",
+				},
+			}
+
+			// Create BMHs
+			bmh1 = &metal3v1alpha1.BareMetalHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh1",
+					Namespace: "test-ns",
+				},
+			}
+
+			bmh2 = &metal3v1alpha1.BareMetalHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh2",
+					Namespace: "test-ns",
+				},
+			}
+
+			// Create HFCs with spec.updates
+			hfc1 = &metal3v1alpha1.HostFirmwareComponents{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh1",
+					Namespace: "test-ns",
+				},
+				Spec: metal3v1alpha1.HostFirmwareComponentsSpec{
+					Updates: []metal3v1alpha1.FirmwareUpdate{
+						{Component: "bios", URL: "http://example.com/bios1.bin"},
+					},
+				},
+			}
+
+			hfc2 = &metal3v1alpha1.HostFirmwareComponents{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh2",
+					Namespace: "test-ns",
+				},
+				Spec: metal3v1alpha1.HostFirmwareComponentsSpec{
+					Updates: []metal3v1alpha1.FirmwareUpdate{
+						{Component: "bios", URL: "http://example.com/bios2.bin"},
+					},
+				},
+			}
+
+			// Create HFSs with spec.settings
+			hfs1 = &metal3v1alpha1.HostFirmwareSettings{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh1",
+					Namespace: "test-ns",
+				},
+				Spec: metal3v1alpha1.HostFirmwareSettingsSpec{
+					Settings: map[string]intstr.IntOrString{
+						"ProcTurboMode": intstr.FromString("Enabled"),
+					},
+				},
+			}
+
+			hfs2 = &metal3v1alpha1.HostFirmwareSettings{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh2",
+					Namespace: "test-ns",
+				},
+				Spec: metal3v1alpha1.HostFirmwareSettingsSpec{
+					Settings: map[string]intstr.IntOrString{
+						"BootMode": intstr.FromString("UEFI"),
+					},
+				},
+			}
+
+			// Create client with all objects
+			testClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(nar, node1, node2, bmh1, bmh2, hfc1, hfc2, hfs1, hfs2).
+				WithStatusSubresource(&pluginsv1alpha1.NodeAllocationRequest{}).
+				WithIndex(&pluginsv1alpha1.AllocatedNode{}, "spec.nodeAllocationRequest", func(o client.Object) []string {
+					node := o.(*pluginsv1alpha1.AllocatedNode)
+					return []string{node.Spec.NodeAllocationRequest}
+				}).
+				Build()
+		})
+
+		It("should clear firmware specs for all nodes when configuration times out", func() {
+			// Verify firmware specs exist before timeout
+			updatedHFC1 := &metal3v1alpha1.HostFirmwareComponents{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh1", Namespace: "test-ns"}, updatedHFC1)).To(Succeed())
+			Expect(updatedHFC1.Spec.Updates).NotTo(BeEmpty(), "HFC1 should have updates before cleanup")
+
+			// Call the cleanup function directly (simulating what happens in timeout handler)
+			err := clearFirmwareSpecFieldsForNAR(ctx, testClient, logger, nar)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify firmware specs were cleared for both nodes
+			updatedHFC1 = &metal3v1alpha1.HostFirmwareComponents{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh1", Namespace: "test-ns"}, updatedHFC1)).To(Succeed())
+			Expect(updatedHFC1.Spec.Updates).To(BeEmpty(), "HFC1 updates should be cleared after timeout")
+
+			updatedHFC2 := &metal3v1alpha1.HostFirmwareComponents{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh2", Namespace: "test-ns"}, updatedHFC2)).To(Succeed())
+			Expect(updatedHFC2.Spec.Updates).To(BeEmpty(), "HFC2 updates should be cleared after timeout")
+
+			updatedHFS1 := &metal3v1alpha1.HostFirmwareSettings{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh1", Namespace: "test-ns"}, updatedHFS1)).To(Succeed())
+			Expect(updatedHFS1.Spec.Settings).To(BeEmpty(), "HFS1 settings should be cleared after timeout")
+
+			updatedHFS2 := &metal3v1alpha1.HostFirmwareSettings{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh2", Namespace: "test-ns"}, updatedHFS2)).To(Succeed())
+			Expect(updatedHFS2.Spec.Settings).To(BeEmpty(), "HFS2 settings should be cleared after timeout")
 		})
 	})
 })

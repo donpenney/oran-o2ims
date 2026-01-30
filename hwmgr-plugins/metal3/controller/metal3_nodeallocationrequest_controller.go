@@ -613,6 +613,14 @@ func (r *NodeAllocationRequestReconciler) HandleNodeAllocationRequest(
 					fmt.Errorf("failed to clear BMH update annotations after configuration timeout %s: %w",
 						nodeAllocationRequest.Name, err)
 			}
+
+			// Clear firmware spec fields to ensure metal3 sees changes on retry
+			if err := clearFirmwareSpecFieldsForNAR(ctx, r.Client, r.Logger, nodeAllocationRequest); err != nil {
+				r.Logger.ErrorContext(ctx, "Failed to clear firmware spec fields after configuration timeout",
+					slog.String("nodeAllocationRequest", nodeAllocationRequest.Name),
+					slog.String("error", err.Error()))
+				// Continue despite error - best effort cleanup
+			}
 		}
 
 		return hwmgrutils.DoNotRequeue(), nil

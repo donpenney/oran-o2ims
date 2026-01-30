@@ -1407,6 +1407,74 @@ var _ = Describe("Helpers", func() {
 				Expect(result.Requeue).To(BeFalse())
 			})
 
+			It("should clear update-needed annotations and firmware specs when BMH enters error state", func() {
+				// Setup: Add update-needed annotations to BMH
+				testBMH.Annotations[BiosUpdateNeededAnnotation] = ValueTrue
+				testBMH.Annotations[FirmwareUpdateNeededAnnotation] = ValueTrue
+
+				// Create HostFirmwareComponents with spec.updates
+				hfc := &metal3v1alpha1.HostFirmwareComponents{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      testBMH.Name,
+						Namespace: testBMH.Namespace,
+					},
+					Spec: metal3v1alpha1.HostFirmwareComponentsSpec{
+						Updates: []metal3v1alpha1.FirmwareUpdate{
+							{Component: "bios", URL: "http://example.com/bios.bin"},
+							{Component: "bmc", URL: "http://example.com/bmc.bin"},
+						},
+					},
+				}
+
+				// Create HostFirmwareSettings with spec.settings
+				hfs := &metal3v1alpha1.HostFirmwareSettings{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      testBMH.Name,
+						Namespace: testBMH.Namespace,
+					},
+					Spec: metal3v1alpha1.HostFirmwareSettingsSpec{
+						Settings: metal3v1alpha1.DesiredSettingsMap{
+							"ProcTurboMode": intstr.FromString("Enabled"),
+						},
+					},
+				}
+
+				// Add firmware resources to client
+				Expect(testClient.Create(ctx, hfc)).To(Succeed())
+				Expect(testClient.Create(ctx, hfs)).To(Succeed())
+				Expect(testClient.Update(ctx, testBMH)).To(Succeed())
+
+				// Call handleNodeInProgressUpdate (which calls processBMHUpdateCase)
+				result, err := handleNodeInProgressUpdate(ctx, testClient, testClient, logger, "test-plugin-namespace", testNode)
+
+				// Verify error handling occurred
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("bmh test-namespace/test-bmh is in error state, node status updated to Failed"))
+
+				// Verify update-needed annotations were cleared
+				updatedBMH := &metal3v1alpha1.BareMetalHost{}
+				bmhKey := types.NamespacedName{Name: testBMH.Name, Namespace: testBMH.Namespace}
+				Expect(testClient.Get(ctx, bmhKey, updatedBMH)).To(Succeed())
+				Expect(updatedBMH.Annotations).NotTo(HaveKey(BiosUpdateNeededAnnotation),
+					"BIOS update annotation should be cleared on error")
+				Expect(updatedBMH.Annotations).NotTo(HaveKey(FirmwareUpdateNeededAnnotation),
+					"Firmware update annotation should be cleared on error")
+
+				// Verify firmware specs were cleared
+				updatedHFC := &metal3v1alpha1.HostFirmwareComponents{}
+				Expect(testClient.Get(ctx, bmhKey, updatedHFC)).To(Succeed())
+				Expect(updatedHFC.Spec.Updates).To(BeEmpty(),
+					"HostFirmwareComponents spec.updates should be cleared on error")
+
+				updatedHFS := &metal3v1alpha1.HostFirmwareSettings{}
+				Expect(testClient.Get(ctx, bmhKey, updatedHFS)).To(Succeed())
+				Expect(updatedHFS.Spec.Settings).To(BeEmpty(),
+					"HostFirmwareSettings spec.settings should be cleared on error")
+
+				// Verify requeue result
+				Expect(result.Requeue).To(BeFalse())
+			})
+
 			It("should continue waiting when BMH is in progress (not error)", func() {
 				// Update BMH to be in servicing state (not error)
 				testBMH.Status.OperationalStatus = metal3v1alpha1.OperationalStatusServicing
@@ -1885,6 +1953,213 @@ var _ = Describe("Helpers", func() {
 					Expect(updatedWorker2.Spec.HwProfile).To(Equal("profile-v1"))
 				})
 			})
+		})
+	})
+
+	Describe("clearFirmwareSpecFieldsForNAR", func() {
+		var (
+			ctx        context.Context
+			logger     *slog.Logger
+			testClient client.Client
+			nar        *pluginsv1alpha1.NodeAllocationRequest
+			node1      *pluginsv1alpha1.AllocatedNode
+			node2      *pluginsv1alpha1.AllocatedNode
+			bmh1       *metal3v1alpha1.BareMetalHost
+			bmh2       *metal3v1alpha1.BareMetalHost
+			hfc1       *metal3v1alpha1.HostFirmwareComponents
+			hfc2       *metal3v1alpha1.HostFirmwareComponents
+			hfs1       *metal3v1alpha1.HostFirmwareSettings
+			hfs2       *metal3v1alpha1.HostFirmwareSettings
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			logger = slog.Default()
+
+			// Create scheme and client
+			scheme := runtime.NewScheme()
+			Expect(pluginsv1alpha1.AddToScheme(scheme)).To(Succeed())
+			Expect(metal3v1alpha1.AddToScheme(scheme)).To(Succeed())
+			Expect(hwmgmtv1alpha1.AddToScheme(scheme)).To(Succeed())
+
+			// Create NAR
+			nar = &pluginsv1alpha1.NodeAllocationRequest{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-nar",
+					Namespace: "test-ns",
+				},
+			}
+
+			// Create two nodes
+			node1 = &pluginsv1alpha1.AllocatedNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node1",
+					Namespace: "test-ns",
+				},
+				Spec: pluginsv1alpha1.AllocatedNodeSpec{
+					NodeAllocationRequest: "test-nar",
+					HwMgrNodeId:           "bmh1",
+					HwMgrNodeNs:           "test-ns",
+				},
+			}
+
+			node2 = &pluginsv1alpha1.AllocatedNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "node2",
+					Namespace: "test-ns",
+				},
+				Spec: pluginsv1alpha1.AllocatedNodeSpec{
+					NodeAllocationRequest: "test-nar",
+					HwMgrNodeId:           "bmh2",
+					HwMgrNodeNs:           "test-ns",
+				},
+			}
+
+			// Create BMHs
+			bmh1 = &metal3v1alpha1.BareMetalHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh1",
+					Namespace: "test-ns",
+				},
+			}
+
+			bmh2 = &metal3v1alpha1.BareMetalHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh2",
+					Namespace: "test-ns",
+				},
+			}
+
+			// Create HFCs with spec.updates
+			hfc1 = &metal3v1alpha1.HostFirmwareComponents{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh1",
+					Namespace: "test-ns",
+				},
+				Spec: metal3v1alpha1.HostFirmwareComponentsSpec{
+					Updates: []metal3v1alpha1.FirmwareUpdate{
+						{Component: "bios", URL: "http://example.com/bios1.bin"},
+					},
+				},
+			}
+
+			hfc2 = &metal3v1alpha1.HostFirmwareComponents{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh2",
+					Namespace: "test-ns",
+				},
+				Spec: metal3v1alpha1.HostFirmwareComponentsSpec{
+					Updates: []metal3v1alpha1.FirmwareUpdate{
+						{Component: "bios", URL: "http://example.com/bios2.bin"},
+						{Component: "bmc", URL: "http://example.com/bmc2.bin"},
+					},
+				},
+			}
+
+			// Create HFSs with spec.settings
+			hfs1 = &metal3v1alpha1.HostFirmwareSettings{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh1",
+					Namespace: "test-ns",
+				},
+				Spec: metal3v1alpha1.HostFirmwareSettingsSpec{
+					Settings: metal3v1alpha1.DesiredSettingsMap{
+						"ProcTurboMode": intstr.FromString("Enabled"),
+					},
+				},
+			}
+
+			hfs2 = &metal3v1alpha1.HostFirmwareSettings{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "bmh2",
+					Namespace: "test-ns",
+				},
+				Spec: metal3v1alpha1.HostFirmwareSettingsSpec{
+					Settings: metal3v1alpha1.DesiredSettingsMap{
+						"ProcTurboMode": intstr.FromString("Disabled"),
+						"BootMode":      intstr.FromString("UEFI"),
+					},
+				},
+			}
+
+			// Create client with all objects and index for node queries
+			testClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(nar, node1, node2, bmh1, bmh2, hfc1, hfc2, hfs1, hfs2).
+				WithIndex(&pluginsv1alpha1.AllocatedNode{}, "spec.nodeAllocationRequest", func(o client.Object) []string {
+					node := o.(*pluginsv1alpha1.AllocatedNode)
+					return []string{node.Spec.NodeAllocationRequest}
+				}).
+				Build()
+		})
+
+		It("should clear firmware specs for all nodes in NAR", func() {
+			// Call the function
+			err := clearFirmwareSpecFieldsForNAR(ctx, testClient, logger, nar)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify HFC1 specs are cleared
+			updatedHFC1 := &metal3v1alpha1.HostFirmwareComponents{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh1", Namespace: "test-ns"}, updatedHFC1)).To(Succeed())
+			Expect(updatedHFC1.Spec.Updates).To(BeEmpty(), "HFC1 updates should be cleared")
+
+			// Verify HFC2 specs are cleared
+			updatedHFC2 := &metal3v1alpha1.HostFirmwareComponents{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh2", Namespace: "test-ns"}, updatedHFC2)).To(Succeed())
+			Expect(updatedHFC2.Spec.Updates).To(BeEmpty(), "HFC2 updates should be cleared")
+
+			// Verify HFS1 specs are cleared
+			updatedHFS1 := &metal3v1alpha1.HostFirmwareSettings{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh1", Namespace: "test-ns"}, updatedHFS1)).To(Succeed())
+			Expect(updatedHFS1.Spec.Settings).To(BeEmpty(), "HFS1 settings should be cleared")
+
+			// Verify HFS2 specs are cleared
+			updatedHFS2 := &metal3v1alpha1.HostFirmwareSettings{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh2", Namespace: "test-ns"}, updatedHFS2)).To(Succeed())
+			Expect(updatedHFS2.Spec.Settings).To(BeEmpty(), "HFS2 settings should be cleared")
+		})
+
+		It("should handle errors gracefully when some BMHs don't exist", func() {
+			// Delete bmh2 to simulate missing BMH
+			Expect(testClient.Delete(ctx, bmh2)).To(Succeed())
+
+			// Call the function
+			err := clearFirmwareSpecFieldsForNAR(ctx, testClient, logger, nar)
+
+			// Should return error because one BMH is missing
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to get BMH"))
+			Expect(err.Error()).To(ContainSubstring("node2"))
+
+			// Verify HFC1 and HFS1 were still cleared (partial cleanup)
+			updatedHFC1 := &metal3v1alpha1.HostFirmwareComponents{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh1", Namespace: "test-ns"}, updatedHFC1)).To(Succeed())
+			Expect(updatedHFC1.Spec.Updates).To(BeEmpty(), "HFC1 should still be cleared despite error on node2")
+
+			updatedHFS1 := &metal3v1alpha1.HostFirmwareSettings{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh1", Namespace: "test-ns"}, updatedHFS1)).To(Succeed())
+			Expect(updatedHFS1.Spec.Settings).To(BeEmpty(), "HFS1 should still be cleared despite error on node2")
+		})
+
+		It("should handle missing firmware resources gracefully", func() {
+			// Delete HFC2 and HFS2 to simulate missing firmware resources
+			Expect(testClient.Delete(ctx, hfc2)).To(Succeed())
+			Expect(testClient.Delete(ctx, hfs2)).To(Succeed())
+
+			// Call the function
+			err := clearFirmwareSpecFieldsForNAR(ctx, testClient, logger, nar)
+
+			// Should succeed - missing firmware resources are not an error
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify HFC1 and HFS1 were cleared
+			updatedHFC1 := &metal3v1alpha1.HostFirmwareComponents{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh1", Namespace: "test-ns"}, updatedHFC1)).To(Succeed())
+			Expect(updatedHFC1.Spec.Updates).To(BeEmpty())
+
+			updatedHFS1 := &metal3v1alpha1.HostFirmwareSettings{}
+			Expect(testClient.Get(ctx, types.NamespacedName{Name: "bmh1", Namespace: "test-ns"}, updatedHFS1)).To(Succeed())
+			Expect(updatedHFS1.Spec.Settings).To(BeEmpty())
 		})
 	})
 })

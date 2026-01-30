@@ -786,6 +786,22 @@ func processBMHUpdateCase(ctx context.Context,
 			return ctrl.Result{}, err
 		}
 
+		// Clear BMH update annotations to ensure clean state for retry
+		if err := clearBMHUpdateAnnotations(ctx, c, logger, bmh); err != nil {
+			logger.WarnContext(ctx, "Failed to clear BMH update annotations after error",
+				slog.String("BMH", bmh.Name),
+				slog.String("error", err.Error()))
+			return hwmgrutils.RequeueWithShortInterval(), nil
+		}
+
+		// Clear firmware spec fields to ensure metal3 sees changes on retry
+		if err := clearFirmwareSpecFields(ctx, c, logger, bmh); err != nil {
+			logger.WarnContext(ctx, "Failed to clear firmware spec fields after error",
+				slog.String("BMH", bmh.Name),
+				slog.String("error", err.Error()))
+			// Don't return error - best effort cleanup, continue to clear error annotation
+		}
+
 		// Clear BMH error annotation to allow future retry attempts
 		if err := clearTransientBMHErrorAnnotation(ctx, c, logger, bmh); err != nil {
 			logger.WarnContext(ctx, "failed to clear BMH error annotation for future retries",
@@ -1107,6 +1123,14 @@ func finalizeBMHDeallocation(ctx context.Context, c client.Client, logger *slog.
 		// Remove configuration-related annotations
 		for _, key := range []string{BiosUpdateNeededAnnotation, FirmwareUpdateNeededAnnotation} {
 			delete(patched.Annotations, key)
+		}
+
+		// Clear firmware spec fields to ensure clean state for re-allocation
+		if err := clearFirmwareSpecFields(ctx, c, logger, &current); err != nil {
+			logger.WarnContext(ctx, "Failed to clear firmware spec fields during deallocation",
+				slog.String("bmh", name.String()),
+				slog.String("error", err.Error()))
+			// Continue - best effort cleanup, don't fail deallocation
 		}
 
 		// Initialize annotations map if it's nil

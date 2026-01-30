@@ -66,6 +66,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -892,7 +893,33 @@ var _ = Describe("BareMetalHost Manager", func() {
 			bmh.Spec.Online = true
 			bmh.Spec.PreprovisioningNetworkDataName = "old-network-data"
 
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(bmh).Build()
+			// Create HostFirmwareComponents with spec.updates
+			hfc := &metal3v1alpha1.HostFirmwareComponents{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      bmh.Name,
+					Namespace: bmh.Namespace,
+				},
+				Spec: metal3v1alpha1.HostFirmwareComponentsSpec{
+					Updates: []metal3v1alpha1.FirmwareUpdate{
+						{Component: "bios", URL: "http://example.com/bios.bin"},
+					},
+				},
+			}
+
+			// Create HostFirmwareSettings with spec.settings
+			hfs := &metal3v1alpha1.HostFirmwareSettings{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      bmh.Name,
+					Namespace: bmh.Namespace,
+				},
+				Spec: metal3v1alpha1.HostFirmwareSettingsSpec{
+					Settings: metal3v1alpha1.DesiredSettingsMap{
+						"ProcTurboMode": intstr.FromString("Enabled"),
+					},
+				},
+			}
+
+			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(bmh, hfc, hfs).Build()
 		})
 
 		It("should deallocate BMH successfully", func() {
@@ -916,6 +943,17 @@ var _ = Describe("BareMetalHost Manager", func() {
 			Expect(hasBiosAnnotation).To(BeFalse())
 			_, hasFirmwareAnnotation := updatedBMH.Annotations[FirmwareUpdateNeededAnnotation]
 			Expect(hasFirmwareAnnotation).To(BeFalse())
+
+			// Check that firmware specs were cleared
+			var hfc metal3v1alpha1.HostFirmwareComponents
+			err = fakeClient.Get(ctx, name, &hfc)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hfc.Spec.Updates).To(BeEmpty(), "HostFirmwareComponents updates should be cleared during deallocation")
+
+			var hfs metal3v1alpha1.HostFirmwareSettings
+			err = fakeClient.Get(ctx, name, &hfs)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hfs.Spec.Settings).To(BeEmpty(), "HostFirmwareSettings settings should be cleared during deallocation")
 
 			// Check that spec fields were updated
 			Expect(updatedBMH.Spec.Online).To(BeFalse())
