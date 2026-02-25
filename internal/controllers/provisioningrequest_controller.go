@@ -627,6 +627,11 @@ func (t *provisioningRequestReconcilerTask) handleNodeAllocationRequestProvision
 		return requeueWithMediumInterval(), false, err
 	}
 	if timedOutOrFailed {
+		// Check if this is a terminal failure (Failed/TimedOut) and update provisioning phase accordingly
+		if checkErr := t.checkProvisioningConditionsForFailures(ctx); checkErr != nil {
+			t.logger.ErrorContext(ctx, "Failed to check provisioning conditions after hardware failure",
+				slog.String("error", checkErr.Error()))
+		}
 		err = t.resetHardwareTimersAndPersist()
 		return requeueWithMediumInterval(), false, err
 	}
@@ -692,6 +697,10 @@ func (t *provisioningRequestReconcilerTask) checkClusterDeployConfigState(ctx co
 				return requeueWithError(err)
 			}
 			if timedOutOrFailed {
+				// Check if this is a terminal failure (Failed/TimedOut) and update provisioning phase accordingly
+				if checkErr := t.checkProvisioningConditionsForFailures(ctx); checkErr != nil {
+					return requeueWithError(checkErr)
+				}
 				// Continue requeuing to allow overall timeout or spec changes to potentially recover
 				return requeueWithMediumInterval(), nil
 			}

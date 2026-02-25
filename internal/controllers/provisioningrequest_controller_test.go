@@ -4889,6 +4889,59 @@ plan:
 					}
 				})
 			})
+
+			Context("when hardware configuration fails with InvalidInput", func() {
+				BeforeEach(func() {
+					// Set up a scenario where hardware configuration has failed
+					// This simulates the case where an invalid BIOS setting was provided
+					// Hardware provisioning is already skipped (HwTemplate = "") from parent BeforeEach
+
+					// Set HardwareProvisioned to Completed
+					utils.SetStatusCondition(&deployConfigCR.Status.Conditions,
+						provisioningv1alpha1.PRconditionTypes.HardwareProvisioned,
+						provisioningv1alpha1.CRconditionReasons.Completed,
+						metav1.ConditionTrue,
+						"Hardware provisioning completed")
+
+					// Set HardwareConfigured to Failed (simulating invalid BIOS settings)
+					utils.SetStatusCondition(&deployConfigCR.Status.Conditions,
+						provisioningv1alpha1.PRconditionTypes.HardwareConfigured,
+						provisioningv1alpha1.CRconditionReasons.Failed,
+						metav1.ConditionFalse,
+						"Hardware configuring failed: invalid BIOS settings: [Setting WorkloadProfile is invalid, unknown enumeration value - TelcoOptimizedProfile]")
+
+					deployConfigCR.Status.ProvisioningStatus = provisioningv1alpha1.ProvisioningStatus{
+						ProvisioningPhase:   provisioningv1alpha1.StateProgressing,
+						ProvisioningDetails: "Hardware configuring is in progress",
+					}
+
+					Expect(c.Status().Update(ctx, deployConfigCR)).To(Succeed())
+				})
+
+				It("should transition provisioningPhase to failed", func() {
+					// Call checkClusterDeployConfigState which should detect the hardware failure
+					// Since hardware provisioning is skipped, it will reach line 715 and call
+					// checkProvisioningConditionsForFailures to detect the HardwareConfigured failure
+					result, err := deployConfigTask.checkClusterDeployConfigState(ctx)
+
+					// Verify no error occurred
+					Expect(err).ToNot(HaveOccurred())
+
+					// Refresh the CR to get latest status
+					updatedCR := &provisioningv1alpha1.ProvisioningRequest{}
+					getErr := c.Get(ctx, types.NamespacedName{Name: deployConfigCR.Name, Namespace: deployConfigCR.Namespace}, updatedCR)
+					Expect(getErr).ToNot(HaveOccurred(), "should be able to fetch the ProvisioningRequest")
+
+					// Verify provisioning phase is failed
+					Expect(updatedCR.Status.ProvisioningStatus.ProvisioningPhase).To(Equal(provisioningv1alpha1.StateFailed),
+						"provisioningPhase should be set to 'failed' when hardware configuration fails")
+					Expect(updatedCR.Status.ProvisioningStatus.ProvisioningDetails).To(ContainSubstring("invalid BIOS settings"),
+						"provisioningDetails should contain the failure message")
+
+					// Function should still requeue for monitoring
+					Expect(result).To(Equal(requeueWithMediumInterval()))
+				})
+			})
 		})
 
 		Context("when ClusterDetails exists", func() {
