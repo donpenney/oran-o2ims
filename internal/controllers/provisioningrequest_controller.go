@@ -31,6 +31,7 @@ import (
 	observabilityv1beta1 "github.com/stolostron/multicluster-observability-operator/operators/multiclusterobservability/api/v1beta1"
 	siteconfig "github.com/stolostron/siteconfig/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -759,19 +760,31 @@ func (t *provisioningRequestReconcilerTask) checkClusterDeployConfigState(ctx co
 		return requeueWithError(err)
 	}
 
-	// If the existing provisioning has been fulfilled, check if there are any issues
-	// with the validation, rendering, or creation of resources due to updates to the
-	// ProvisioningRequest. If there are issues, transition the provisioningPhase to failed.
 	if ctlrutils.IsProvisioningStateFulfilled(t.object) {
-		if err = t.checkProvisioningConditionsForFailures(ctx); err != nil {
-			return requeueWithError(err)
-		}
-
-		// Continue monitoring even after fulfillment for spec changes
-		t.logger.DebugContext(ctx, "Fulfilled provisioning check complete, continuing monitoring")
-		return requeueWithLongInterval(), nil
+		return t.handleFulfilledStateMonitoring(ctx)
 	}
 	return doNotRequeue(), nil
+}
+
+// handleFulfilledStateMonitoring handles monitoring for a fulfilled ProvisioningRequest,
+// checking for condition failures and syncing skip-cleanup state.
+func (t *provisioningRequestReconcilerTask) handleFulfilledStateMonitoring(ctx context.Context) (ctrl.Result, error) {
+	if err := t.checkProvisioningConditionsForFailures(ctx); err != nil {
+		return requeueWithError(err)
+	}
+
+	// Sync skip-cleanup annotation to the NAR for fulfilled PRs.
+	// During provisioning this is handled by createOrUpdateNodeAllocationRequest,
+	// but after fulfillment that path is no longer called.
+	if !t.isHardwareProvisionSkipped() && t.hwpluginClient != nil {
+		if err := t.syncNARSkipCleanup(ctx); err != nil {
+			return requeueWithError(fmt.Errorf("failed to sync skipCleanup on NAR: %w", err))
+		}
+	}
+
+	// Continue monitoring even after fulfillment for spec changes
+	t.logger.DebugContext(ctx, "Fulfilled provisioning check complete, continuing monitoring")
+	return requeueWithLongInterval(), nil
 }
 
 // checkClusterInstallationTimeout ensures reliable timeout detection even when other checks fail.
@@ -1123,6 +1136,35 @@ func (r *ProvisioningRequestReconciler) handleProvisioningRequestDeletion(
 		}
 	}
 
+	// Set hubAcceptsClient=false on the ManagedCluster to trigger ACM's
+	// force-detach path. Without this, after the NAR deletion powers off the
+	// spoke, ACM waits ~4 minutes trying to gracefully detach the unreachable
+	// spoke before falling back to force-detach.
+	// Skip this when skip-cleanup is set, as the spoke will remain running and
+	// ACM needs to do a graceful detach to properly clean up its agents.
+	_, skipCleanup := provisioningRequest.Annotations[ctlrutils.SkipCleanupAnnotation]
+	if !skipCleanup && provisioningRequest.Status.Extensions.ClusterDetails != nil {
+		clusterName := provisioningRequest.Status.Extensions.ClusterDetails.Name
+		managedCluster := &clusterv1.ManagedCluster{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Name: clusterName}, managedCluster); err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				return false, fmt.Errorf("failed to get ManagedCluster %s: %w", clusterName, err)
+			}
+			// ManagedCluster not found — already deleted or never created
+		} else if managedCluster.Spec.HubAcceptsClient {
+			r.Logger.InfoContext(ctx, "Setting hubAcceptsClient=false on ManagedCluster to enable force-detach",
+				slog.String("managedCluster", clusterName))
+			patch := client.MergeFrom(managedCluster.DeepCopy())
+			managedCluster.Spec.HubAcceptsClient = false
+			if err := r.Client.Patch(ctx, managedCluster, patch); err != nil {
+				r.Logger.WarnContext(ctx, "Failed to set hubAcceptsClient=false, will retry",
+					slog.String("managedCluster", clusterName),
+					slog.String("error", err.Error()))
+				return false, nil
+			}
+		}
+	}
+
 	// Delete the NodeAllocationRequest CR first
 	if provisioningRequest.Status.Extensions.NodeAllocationRequestRef != nil {
 		// Get hwplugin client for the HardwarePlugin
@@ -1318,6 +1360,9 @@ func (t *provisioningRequestReconcilerTask) finalizeProvisioningIfComplete(ctx c
 		if !t.isHardwareProvisionSkipped() && t.hwpluginClient != nil {
 			if err := t.setNARClusterProvisioned(ctx); err != nil {
 				return fmt.Errorf("failed to set clusterProvisioned on NAR: %w", err)
+			}
+			if err := t.syncNARSkipCleanup(ctx); err != nil {
+				return fmt.Errorf("failed to sync skipCleanup on NAR: %w", err)
 			}
 		}
 	}
