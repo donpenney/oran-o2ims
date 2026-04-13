@@ -98,7 +98,7 @@ for pkg in "${!pkg_total_stmts[@]}"; do
     total="${pkg_total_stmts[${pkg}]}"
     covered="${pkg_covered_stmts[${pkg}]:-0}"
     if [[ "${total}" -gt 0 ]]; then
-        pkg_avg[${pkg}]=$(echo "scale=1; ${covered} * 100 / ${total}" | bc)
+        pkg_avg[${pkg}]=$(awk "BEGIN {printf \"%.1f\", ${covered} * 100 / ${total}}")
     else
         pkg_avg[${pkg}]="0"
     fi
@@ -153,8 +153,8 @@ while IFS= read -r line; do
             continue
         fi
 
-        # Compare (using bc for float comparison)
-        if (( $(echo "${actual} < ${threshold}" | bc -l) )); then
+        # Compare using awk for float comparison
+        if (( $(awk "BEGIN {print (${actual} < ${threshold})}") )); then
             printf "%-65s %7s%% %7s%% %s\n" "${pkg}" "${actual}" "${threshold}" "✗ FAIL"
             FAILURES=$((FAILURES + 1))
         else
@@ -173,7 +173,7 @@ done
 
 echo ""
 printf "%-65s %7s%% %7s%% " "OVERALL" "${OVERALL_COVERAGE}" "${OVERALL_THRESHOLD}"
-if (( $(echo "${OVERALL_COVERAGE} < ${OVERALL_THRESHOLD}" | bc -l) )); then
+if (( $(awk "BEGIN {print (${OVERALL_COVERAGE} < ${OVERALL_THRESHOLD})}") )); then
     echo "✗ FAIL"
     FAILURES=$((FAILURES + 1))
 else
