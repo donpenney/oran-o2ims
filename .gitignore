@@ -18,3 +18,4 @@
 
 # ginkgo code coverage
 coverprofile.out
+coverage/

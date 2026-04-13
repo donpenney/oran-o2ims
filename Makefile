@@ -610,10 +610,16 @@ go-generate:
 	done
 	@echo "All generated files are up-to-date."
 
+COVERAGE_DIR := $(PROJECT_DIR)/coverage
+COVERAGE_UNIT := $(COVERAGE_DIR)/unit.out
+COVERAGE_ENVTEST := $(COVERAGE_DIR)/envtest.out
+COVERAGE_MERGED := $(COVERAGE_DIR)/merged.out
+
 .PHONY: test tests
 test tests:
 	@echo "Run ginkgo excluding envtest tests"
-	ginkgo run -r --label-filter="!envtest" ./internal ./api ./hwmgr-plugins $(ginkgo_flags)
+	@mkdir -p $(COVERAGE_DIR)
+	ginkgo run -r --label-filter="!envtest" --coverprofile=unit.out --output-dir=$(COVERAGE_DIR) ./internal ./api ./hwmgr-plugins $(ginkgo_flags)
 
 .PHONY: test-e2e
 test-e2e: envtest kubectl
@@ -628,12 +634,33 @@ ifeq ($(shell uname -s),Linux)
 	@chmod -R u+w $(LOCALBIN)
 endif
 	@echo "Run ginkgo envtest tests"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -i --bin-dir $(LOCALBIN) -p path)" ginkgo run -r --label-filter="envtest" ./internal $(ginkgo_flags)
+	@mkdir -p $(COVERAGE_DIR)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -i --bin-dir $(LOCALBIN) -p path)" ginkgo run -r --label-filter="envtest" --coverprofile=envtest.out --output-dir=$(COVERAGE_DIR) ./internal $(ginkgo_flags)
 
 .PHONY: test-crd-watcher
 test-crd-watcher:
 	@echo "Run crd-watcher unit tests"
 	cd dev-tools/crd-watcher && go test -v $(ginkgo_flags)
+
+.PHONY: test-coverage-check
+test-coverage-check: ## Check code coverage against per-package thresholds
+	@echo "Merging coverage profiles"
+	@mkdir -p $(COVERAGE_DIR)
+	@# Merge unit and envtest profiles if both exist; use whichever is available
+	@if [ -f $(COVERAGE_UNIT) ] && [ -f $(COVERAGE_ENVTEST) ]; then \
+		head -1 $(COVERAGE_UNIT) > $(COVERAGE_MERGED); \
+		tail -n +2 $(COVERAGE_UNIT) >> $(COVERAGE_MERGED); \
+		tail -n +2 $(COVERAGE_ENVTEST) >> $(COVERAGE_MERGED); \
+	elif [ -f $(COVERAGE_UNIT) ]; then \
+		cp $(COVERAGE_UNIT) $(COVERAGE_MERGED); \
+	elif [ -f $(COVERAGE_ENVTEST) ]; then \
+		cp $(COVERAGE_ENVTEST) $(COVERAGE_MERGED); \
+	else \
+		echo "ERROR: No coverage profiles found. Run 'make test' and/or 'make test-envtest' first."; \
+		exit 1; \
+	fi
+	@echo "Checking coverage thresholds"
+	@$(PROJECT_DIR)/hack/check-coverage.sh $(COVERAGE_MERGED)
 
 .PHONY: fmt
 fmt:
@@ -653,7 +680,7 @@ deps-update: mock-gen golangci-lint-download
 # TODO: add back `test-e2e` to ci-job
 # NOTE: `bundle-check` should be the last job in the list for `ci-job`
 .PHONY: ci-job
-ci-job: deps-update go-generate generate fmt vet lint test test-e2e test-envtest test-crd-watcher bundle-check
+ci-job: deps-update go-generate generate fmt vet lint test test-e2e test-envtest test-crd-watcher test-coverage-check bundle-check
 
 .PHONY: clean
 clean:
