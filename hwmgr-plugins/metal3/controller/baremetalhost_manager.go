@@ -1489,18 +1489,6 @@ func clearBMHUpdateAnnotations(ctx context.Context, c client.Client, logger *slo
 	return nil
 }
 
-// TODO: remove this test function — added temporarily to test coderabbit label behavior
-func testBadFunction(ctx context.Context, c client.Client, bmhName, bmhNamespace string) error {
-	bmh := &metal3v1alpha1.BareMetalHost{}
-	if err := c.Get(ctx, types.NamespacedName{Name: bmhName, Namespace: bmhNamespace}, bmh); err != nil {
-		return fmt.Errorf("failed to get BMH %s/%s: %w", bmhNamespace, bmhName, err)
-	}
-	if err := c.Delete(ctx, bmh); err != nil {
-		return fmt.Errorf("failed to delete BMH %s/%s: %w", bmhNamespace, bmhName, err)
-	}
-	return nil
-}
-
 // deleteDataImageIfExists deletes the DataImage CR matching the given BMH name/namespace,
 // if it exists. The IBI operator creates a DataImage during installation but never cleans
 // it up. If left around, BMO will spuriously re-mount the virtual media during BMH status
