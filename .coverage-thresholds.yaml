@@ -1,4 +1,4 @@
-# Code coverage thresholds per package.
+# Code coverage thresholds per package (statement-weighted).
 # These are minimum coverage percentages that must be maintained.
 # The check-coverage.sh script will fail if any package drops below its threshold.
 # Increase thresholds as coverage improves over time.
@@ -8,29 +8,29 @@ overall: 53
 
 # Per-package minimum thresholds
 packages:
-  api/hardwaremanagement/v1alpha1: 9
-  api/provisioning/v1alpha1: 51
+  api/hardwaremanagement/v1alpha1: 3
+  api/provisioning/v1alpha1: 64
   hwmgr-plugins/controller/utils: 0
-  hwmgr-plugins/metal3/controller: 69
-  hwmgr-plugins/metal3/server: 88
-  internal: 42
-  internal/cmd/server: 89
-  internal/controllers: 62
-  internal/controllers/utils: 21
-  internal/logging: 74
-  internal/search: 82
-  internal/service/alarms/api: 7
-  internal/service/alarms/internal/alertmanager: 85
-  internal/service/alarms/internal/db/repo: 85
-  internal/service/alarms/internal/infrastructure: 58
-  internal/service/artifacts/api: 12
-  internal/service/cluster/api: 16
-  internal/service/cluster/collector: 12
-  internal/service/common/api: 70
-  internal/service/common/api/middleware: 44
-  internal/service/common/async: 99
-  internal/service/common/auth: 41
-  internal/service/common/utils: 24
-  internal/service/provisioning/api: 24
-  internal/service/resources/listener: 41
-  internal/typed-errors: 40
+  hwmgr-plugins/metal3/controller: 63
+  hwmgr-plugins/metal3/server: 46
+  internal: 16
+  internal/cmd/server: 40
+  internal/controllers: 32
+  internal/controllers/utils: 19
+  internal/logging: 39
+  internal/search: 38
+  internal/service/alarms/api: 2
+  internal/service/alarms/internal/alertmanager: 42
+  internal/service/alarms/internal/db/repo: 40
+  internal/service/alarms/internal/infrastructure: 30
+  internal/service/artifacts/api: 10
+  internal/service/cluster/api: 11
+  internal/service/cluster/collector: 5
+  internal/service/common/api: 74
+  internal/service/common/api/middleware: 31
+  internal/service/common/async: 48
+  internal/service/common/auth: 29
+  internal/service/common/utils: 12
+  internal/service/provisioning/api: 17
+  internal/service/resources/listener: 15
+  internal/typed-errors: 38

@@ -35,40 +35,63 @@ OVERALL_COVERAGE=$(go tool cover -func="${COVERAGE_FILE}" | grep '^total:' | awk
 echo "=== Code Coverage Report ==="
 echo ""
 
-# Collect per-package coverage from the profile
-declare -A pkg_coverage
+# Calculate per-package statement-weighted coverage from the raw profile.
+# Each line in the profile (after the mode: header) has the format:
+#   file.go:startline.col,endline.col numStatements count
+# When merging unit and envtest profiles, the same block may appear multiple
+# times. We deduplicate by taking the max count per block, so a block covered
+# by either test suite counts as covered.
+declare -A block_stmts
+declare -A block_count
 while IFS= read -r line; do
-    # Each line from go tool cover -func is: file:line func coverage%
-    # We want to aggregate by package
-    file=$(echo "${line}" | awk '{print $1}')
-    cov=$(echo "${line}" | awk '{gsub(/%/,""); print $NF}')
+    # Skip the mode: header
+    [[ "${line}" == mode:* ]] && continue
+
+    # Parse: location numStatements count
+    location="${line%% *}"
+    rest="${line#* }"
+    num_stmts="${rest%% *}"
+    count="${rest##* }"
+
+    # Deduplicate: keep the max count for each block
+    block_stmts["${location}"]="${num_stmts}"
+    if [[ -z "${block_count["${location}"]+x}" ]] || [[ "${count}" -gt "${block_count["${location}"]}" ]]; then
+        block_count["${location}"]="${count}"
+    fi
+done < "${COVERAGE_FILE}"
+
+# Aggregate per-package from deduplicated blocks
+declare -A pkg_total_stmts
+declare -A pkg_covered_stmts
+for location in "${!block_stmts[@]}"; do
+    num_stmts="${block_stmts[${location}]}"
+    count="${block_count[${location}]}"
+
+    # Extract file path from location (before the colon with line info)
+    file="${location%%:*}"
 
     # Extract package path (strip module prefix and filename)
     pkg="${file#"${MODULE}"/}"
     pkg="${pkg%/*}"
 
-    if [[ -n "${pkg}" && "${pkg}" != "total:" ]]; then
-        # Accumulate for averaging
-        if [[ -z "${pkg_coverage[${pkg}]+x}" ]]; then
-            pkg_coverage[${pkg}]="${cov}"
-        else
-            pkg_coverage[${pkg}]="${pkg_coverage[${pkg}]} ${cov}"
+    if [[ -n "${pkg}" ]]; then
+        pkg_total_stmts[${pkg}]=$(( ${pkg_total_stmts[${pkg}]:-0} + num_stmts ))
+        if [[ "${count}" -gt 0 ]]; then
+            pkg_covered_stmts[${pkg}]=$(( ${pkg_covered_stmts[${pkg}]:-0} + num_stmts ))
         fi
     fi
-done < <(go tool cover -func="${COVERAGE_FILE}" | grep -v '^total:')
+done
 
-# Calculate per-package averages
+# Calculate per-package coverage percentages
 declare -A pkg_avg
-for pkg in "${!pkg_coverage[@]}"; do
-    values="${pkg_coverage[${pkg}]}"
-    sum=0
-    count=0
-    for v in ${values}; do
-        sum=$(echo "${sum} + ${v}" | bc)
-        count=$((count + 1))
-    done
-    avg=$(echo "scale=1; ${sum} / ${count}" | bc)
-    pkg_avg[${pkg}]="${avg}"
+for pkg in "${!pkg_total_stmts[@]}"; do
+    total="${pkg_total_stmts[${pkg}]}"
+    covered="${pkg_covered_stmts[${pkg}]:-0}"
+    if [[ "${total}" -gt 0 ]]; then
+        pkg_avg[${pkg}]=$(echo "scale=1; ${covered} * 100 / ${total}" | bc)
+    else
+        pkg_avg[${pkg}]="0"
+    fi
 done
 
 # Collect known packages from thresholds file
@@ -115,7 +138,8 @@ while IFS= read -r line; do
         actual="${pkg_avg[${pkg}]:-N/A}"
 
         if [[ "${actual}" == "N/A" ]]; then
-            printf "%-65s %7s%% %7s%% %s\n" "${pkg}" "${actual}" "${threshold}" "⚠ NOT FOUND"
+            printf "%-65s %7s%% %7s%% %s\n" "${pkg}" "${actual}" "${threshold}" "✗ NOT FOUND"
+            FAILURES=$((FAILURES + 1))
             continue
         fi
 
