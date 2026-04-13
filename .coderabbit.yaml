@@ -15,7 +15,7 @@ reviews:
       instructions: >-
         Apply this label only if all review comments have been resolved
         and you are satisfied with the PR. Remove it if new issues are
-        found, unresolved comments remain, or new commits are pushed.
+        found or unresolved comments remain.
   pre_merge_checks:
     docstrings:
       mode: off
