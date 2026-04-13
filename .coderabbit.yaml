@@ -13,9 +13,11 @@ reviews:
   labeling_instructions:
     - label: "coderabbit-satisfied"
       instructions: >-
-        Apply this label only if all review comments have been resolved
-        and you are satisfied with the PR. Remove it if new issues are
-        found or unresolved comments remain.
+        Re-evaluate this label on every review pass, including
+        incremental reviews of new commits. Apply this label if all
+        review comments have been resolved and you are satisfied with
+        the PR. Remove it if new issues are found or unresolved
+        comments remain.
   pre_merge_checks:
     docstrings:
       mode: off
