@@ -70,9 +70,19 @@ for location in "${!block_stmts[@]}"; do
     # Extract file path from location (before the colon with line info)
     file="${location%%:*}"
 
+    # Skip files outside the module
+    if [[ "${file}" != "${MODULE}"/* ]]; then
+        continue
+    fi
+
     # Extract package path (strip module prefix and filename)
-    pkg="${file#"${MODULE}"/}"
-    pkg="${pkg%/*}"
+    rel="${file#"${MODULE}"/}"
+    if [[ "${rel}" == */* ]]; then
+        pkg="${rel%/*}"
+    else
+        # Root-level file (e.g. main.go) — skip
+        continue
+    fi
 
     if [[ -n "${pkg}" ]]; then
         pkg_total_stmts[${pkg}]=$(( ${pkg_total_stmts[${pkg}]:-0} + num_stmts ))
