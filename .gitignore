@@ -1,11 +1,19 @@
 # Files
 *.log
+*.out
+*.exe
+*.swp
+*.swo
 /__debug*
 /oran-o2ims
 /bin/*
 /catalog/*
 /dev-tools/crd-watcher/bin
 /dev-tools/crd-watcher/crd-watcher
+
+# vendor/ # The vendor folder is required, so can't be ignored
+
+.vscode/
 
 # Folders
 .idea/

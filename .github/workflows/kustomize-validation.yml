@@ -19,6 +19,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: actionlint
+        uses: raven-actions/actionlint@v2
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -30,10 +33,10 @@ jobs:
           make kustomize
 
           # Add the bin directory to PATH for subsequent steps
-          echo "$(pwd)/bin" >> $GITHUB_PATH
+          echo "${PWD}"/bin >> "${GITHUB_PATH}"
 
           # Verify installation
-          $(pwd)/bin/kustomize version
+          "${PWD}"/bin/kustomize version
 
       - name: Validate Kustomization Files
         run: make test-kustomize
