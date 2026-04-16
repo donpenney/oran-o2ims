@@ -1,0 +1,60 @@
+# AgentReady Configuration
+#
+# All fields are optional - missing values use defaults from https://github.com/ambient-code/agentready/blob/main/src/agentready/data/default-weights.yaml
+
+# Custom attribute weights (must sum to 1.0)
+# Tier 1 (Essential) attributes default to 10% each
+# Tier 2 (Critical) attributes default to 3% each
+# Tier 3 (Important) attributes default to 3% each
+# Tier 4 (Advanced) attributes default to 1% each
+#weights:
+#  # Tier 1 (Essential) - 50% total
+#  claude_md_file: 0.10              # CLAUDE.md configuration files
+#  readme_structure: 0.10            # README structure and content
+#  type_annotations: 0.10            # Type hints in code
+#  standard_layout: 0.10             # Standard project layout
+#  lock_files: 0.10                  # Dependency lock files
+#
+#  # Tier 2 (Critical) - 30% total
+#  test_coverage: 0.03               # Test coverage requirements
+#  precommit_hooks: 0.03             # Pre-commit hooks & linting
+#  conventional_commits: 0.03        # Conventional commit messages
+#  gitignore_completeness: 0.03      # Comprehensive .gitignore
+#  one_command_setup: 0.03           # One-command build/setup
+#  concise_documentation: 0.03       # Concise structured docs
+#  inline_documentation: 0.03        # Inline code documentation
+#  file_size_limits: 0.03            # File size constraints
+#  dependency_freshness: 0.03        # Dependency updates & security
+#  separation_concerns: 0.03         # Separation of concerns
+#
+#  # Tier 3 (Important) - 15% total
+#  cyclomatic_complexity: 0.03       # Complexity thresholds
+#  structured_logging: 0.03          # Structured logging
+#  openapi_specs: 0.03               # OpenAPI/Swagger specs
+#  architecture_decisions: 0.03      # Architecture Decision Records
+#  semantic_naming: 0.03             # Semantic file naming
+#
+#  # Tier 4 (Advanced) - 5% total
+#  security_scanning: 0.01           # Security scanning automation
+#  performance_benchmarks: 0.01      # Performance benchmarks
+#  code_smells: 0.01                 # Code smell elimination
+#  issue_pr_templates: 0.01          # GitHub templates
+#  container_setup: 0.01             # Container/virtualization
+
+# Exclude specific attributes from assessment
+excluded_attributes:
+  - one_command_setup              # Not applicable to our product
+  - standard_layout                # Expects Pythonic layout, so skip it
+  - branch_protection              # Provided via openshift/release system
+  - cicd_pipeline_visibility       # Provided via openshift/release system
+  - cyclomatic_complexity          # Not applicable to Go
+  - dbt_data_tests                 # Not applicable to Go
+  - dbt_model_documentation        # Not applicable to Go
+  - dbt_project_config             # Not applicable to Go
+  - dbt_project_structure          # Not applicable to Go
+  - inline_documentation           # Not applicable to Go
+  - semantic_naming                # Not applicable to Go
+  - structured_logging             # Not applicable to Go
+  - test_coverage                  # Not applicable to Go
+  - type_annotations               # Not applicable to Go
+
