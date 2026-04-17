@@ -90,7 +90,7 @@ fields:
 |-----------|-------|-----------------|
 | OCloudSite | `spec.globalLocationName` | Location `metadata.name` |
 | ResourcePool | `spec.oCloudSiteName` | OCloudSite `metadata.name` |
-| BareMetalHost | label `resourcePoolName` | ResourcePool `metadata.name` |
+| BareMetalHost | label `resources.clcm.openshift.io/resourcePoolName` | ResourcePool `metadata.name` |
 
 ### Identifiers in API Responses
 
