@@ -24,7 +24,7 @@ SPDX-License-Identifier: Apache-2.0
     - [Using the REST API](#using-the-rest-api)
 
 **Prerequisites:** Familiarity with the [GitOps repository layout](./gitops-layout-and-setup.md)
-and [server onboarding](./server-onboarding-orig.md) process. Templates reference
+and [server onboarding](./server-onboarding.md) process. Templates reference
 hardware resources and configuration defaults that are managed in the GitOps repository.
 
 ## ClusterTemplate CR
@@ -301,7 +301,7 @@ Example of HardwareTemplates:
 [3node](../samples/git-setup/clustertemplates/hardwaretemplates/3node-ran-du/dell-xr8620t-purple.yaml) and
 [Standard](../samples/git-setup/clustertemplates/hardwaretemplates/std-ran-du/dell-r740-green-xr8620t-blue.yaml).
 
-For details about server onboarding, refer to [Server Onboarding](./server-onboarding-orig.md).
+For details about server onboarding, refer to [Server Onboarding](./server-onboarding.md).
 
 ### ClusterInstance defaults ConfigMap
 
