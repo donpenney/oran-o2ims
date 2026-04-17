@@ -705,4 +705,3 @@ CRs are stored in a Git repository and synced to the hub cluster via ArgoCD.
 
 See [GitOps Layout and Setup](./gitops-layout-and-setup.md) for the recommended
 directory structure and ArgoCD configuration.
-
