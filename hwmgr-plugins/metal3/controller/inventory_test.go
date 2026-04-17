@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"regexp"
 
+	"github.com/google/uuid"
 	metal3v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -24,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	pluginsv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/plugins/v1alpha1"
+	inventoryv1alpha1 "github.com/openshift-kni/oran-o2ims/api/inventory/v1alpha1"
 	"github.com/openshift-kni/oran-o2ims/hwmgr-plugins/api/server/inventory"
 	"github.com/openshift-kni/oran-o2ims/internal/constants"
 )
@@ -68,7 +70,7 @@ RESOURCE INFO EXTRACTION FUNCTIONS:
   * Returns ON when BMH is powered on
   * Returns OFF when BMH is powered off
 - getResourceInfoResourceId: Tests formatted resource ID generation
-- getResourceInfoResourcePoolId: Tests resource pool ID extraction from labels
+- getResourceInfoResourcePoolUID: Tests resource pool UID lookup from labels and map
 - getResourceInfoResourceProfileId: Tests HW profile extraction from AllocatedNode
   * Returns HW profile when node present
   * Returns empty string when node is nil
@@ -117,9 +119,6 @@ AGGREGATION FUNCTIONS:
   * Aggregates all resource information correctly from BMH and AllocatedNode
 
 API ENDPOINT FUNCTIONS:
-- GetResourcePools: Tests resource pool API endpoint
-  * Returns resource pools from BMHs included in inventory
-  * Handles empty BMH list
 - GetResources: Tests resources API endpoint
   * Returns resources from BMHs included in inventory
   * Handles BMH without corresponding AllocatedNode
@@ -594,17 +593,39 @@ var _ = Describe("Inventory", func() {
 			testUID := types.UID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
 			bmh.UID = testUID
 			result := getResourceInfoResourceId(bmh)
-			Expect(result).To(Equal(string(testUID)))
+			Expect(result).To(Equal(uuid.MustParse(string(testUID))))
 		})
 	})
 
-	Describe("getResourceInfoResourcePoolId", func() {
-		It("should return resource pool ID from labels", func() {
+	Describe("getResourceInfoResourcePoolUID", func() {
+		It("should return resource pool UID from labels and map", func() {
+			poolUID := "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{
-				LabelResourcePoolID: "pool123",
+				constants.LabelResourcePoolName: "pool123",
 			})
-			result := getResourceInfoResourcePoolId(bmh)
-			Expect(result).To(Equal("pool123"))
+			poolNameToUID := map[string]string{
+				"pool123": poolUID,
+			}
+			result := getResourceInfoResourcePoolUID(bmh, poolNameToUID)
+			Expect(result).To(Equal(poolUID))
+		})
+
+		It("should return empty string when pool not in map", func() {
+			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{
+				constants.LabelResourcePoolName: "pool123",
+			})
+			poolNameToUID := map[string]string{} // Empty map
+			result := getResourceInfoResourcePoolUID(bmh, poolNameToUID)
+			Expect(result).To(Equal(""))
+		})
+
+		It("should return empty string when pool label missing", func() {
+			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{})
+			poolNameToUID := map[string]string{
+				"pool123": "some-uid",
+			}
+			result := getResourceInfoResourcePoolUID(bmh, poolNameToUID)
+			Expect(result).To(Equal(""))
 		})
 	})
 
@@ -980,26 +1001,9 @@ var _ = Describe("Inventory", func() {
 			Expect(result).To(BeFalse())
 		})
 
-		It("should return false when only resourcePoolId label is present", func() {
+		It("should return true when resourcePoolName label is present", func() {
 			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{
-				LabelResourcePoolID: "pool123",
-			})
-			result := IsOCloudManaged(bmh)
-			Expect(result).To(BeFalse())
-		})
-
-		It("should return false when only siteId label is present", func() {
-			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{
-				LabelSiteID: "site123",
-			})
-			result := IsOCloudManaged(bmh)
-			Expect(result).To(BeFalse())
-		})
-
-		It("should return true when both required labels are present", func() {
-			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{
-				LabelResourcePoolID: "pool123",
-				LabelSiteID:         "site123",
+				constants.LabelResourcePoolName: "pool123",
 			})
 			result := IsOCloudManaged(bmh)
 			Expect(result).To(BeTrue())
@@ -1023,10 +1027,9 @@ var _ = Describe("Inventory", func() {
 			Expect(result).To(BeTrue())
 		})
 
-		It("should return true when both required labels and resource selector labels are present", func() {
+		It("should return true when both resourcePoolName and resource selector labels are present", func() {
 			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{
-				LabelResourcePoolID:                   "pool123",
-				LabelSiteID:                           "site123",
+				constants.LabelResourcePoolName:       "pool123",
 				LabelPrefixResourceSelector + "zone":  "east",
 				LabelPrefixResourceSelector + "floor": "2",
 			})
@@ -1042,29 +1045,20 @@ var _ = Describe("Inventory", func() {
 			Expect(result).To(BeFalse())
 		})
 
-		It("should return false when resource pool ID label is missing", func() {
+		It("should return false when resourcePoolName label is missing", func() {
 			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{
-				LabelSiteID: "site123",
+				"some-other-label": "value",
 			})
 			result := includeInInventory(bmh)
 			Expect(result).To(BeFalse())
 		})
 
-		It("should return false when site ID label is missing", func() {
-			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{
-				LabelResourcePoolID: "pool123",
-			})
-			result := includeInInventory(bmh)
-			Expect(result).To(BeFalse())
-		})
-
-		Context("with required labels present", func() {
+		Context("with resourcePoolName label present", func() {
 			var bmh *metal3v1alpha1.BareMetalHost
 
 			BeforeEach(func() {
 				bmh = createBMHWithLabels("test-bmh", "test-ns", map[string]string{
-					LabelResourcePoolID: "pool123",
-					LabelSiteID:         "site123",
+					constants.LabelResourcePoolName: "pool123",
 				})
 			})
 
@@ -1115,10 +1109,11 @@ var _ = Describe("Inventory", func() {
 	Describe("getResourceInfo", func() {
 		It("should aggregate all resource information correctly", func() {
 			testUID := types.UID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
+			testPoolUID := "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 			bmh := createBasicBMH("test-bmh", "test-ns")
 			bmh.UID = testUID
 			bmh.Labels = map[string]string{
-				LabelResourcePoolID:                  "pool123",
+				constants.LabelResourcePoolName:      "pool123",
 				LabelPrefixResourceSelector + "zone": "zone1",
 			}
 			bmh.Annotations = map[string]string{
@@ -1133,7 +1128,12 @@ var _ = Describe("Inventory", func() {
 			node := createAllocatedNode("test-node", "profile123")
 			hwdata := createHardwareData("test-hwdata", "test-ns")
 
-			result := getResourceInfo(bmh, node, hwdata)
+			// Create pool name to UID map
+			poolNameToUID := map[string]string{
+				"pool123": testPoolUID,
+			}
+
+			result := getResourceInfo(bmh, node, hwdata, poolNameToUID)
 
 			Expect(result.AdminState).To(Equal(inventory.ResourceInfoAdminStateUNLOCKED))
 			Expect(result.Description).To(Equal("Test description"))
@@ -1144,77 +1144,14 @@ var _ = Describe("Inventory", func() {
 			Expect(result.OperationalState).To(Equal(inventory.ResourceInfoOperationalStateENABLED))
 			Expect(*result.PowerState).To(Equal(inventory.ON))
 			Expect(result.Processors).To(HaveLen(1))
-			Expect(result.ResourceId).To(Equal(string(testUID)))
-			Expect(result.ResourcePoolId).To(Equal("pool123"))
+			Expect(result.ResourceId).To(Equal(uuid.MustParse(string(testUID))))
+			Expect(result.ResourcePoolId).To(Equal(uuid.MustParse(testPoolUID)))
 			Expect(*result.Tags).To(ContainElement("zone: zone1"))
 			Expect(result.UsageState).To(Equal(inventory.ACTIVE))
 			Expect(result.Vendor).To(Equal("Dell Inc."))
 			Expect(*result.GlobalAssetId).To(Equal("ABC123456"))
 			Expect(result.Allocated).ToNot(BeNil())
 			Expect(*result.Allocated).To(BeFalse())
-		})
-	})
-
-	Describe("GetResourcePools", func() {
-		var (
-			ctx    context.Context
-			scheme *runtime.Scheme
-		)
-
-		BeforeEach(func() {
-			ctx = context.Background()
-			scheme = runtime.NewScheme()
-			Expect(metal3v1alpha1.AddToScheme(scheme)).To(Succeed())
-		})
-
-		It("should return resource pools from BMHs included in inventory", func() {
-			// Create BMHs with required labels and valid states
-			bmh1 := createBMHWithLabels("bmh1", "ns1", map[string]string{
-				LabelResourcePoolID: "pool1",
-				LabelSiteID:         "site1",
-			})
-			bmh1.Status.Provisioning.State = metal3v1alpha1.StateAvailable
-
-			bmh2 := createBMHWithLabels("bmh2", "ns2", map[string]string{
-				LabelResourcePoolID: "pool2",
-				LabelSiteID:         "site2",
-			})
-			bmh2.Status.Provisioning.State = metal3v1alpha1.StateProvisioned
-
-			// Create BMH that should be excluded (missing labels)
-			bmh3 := createBasicBMH("bmh3", "ns3")
-
-			client := fake.NewClientBuilder().
-				WithScheme(scheme).
-				WithObjects(bmh1, bmh2, bmh3).
-				Build()
-
-			result, err := GetResourcePools(ctx, client)
-			Expect(err).ToNot(HaveOccurred())
-
-			response, ok := result.(inventory.GetResourcePools200JSONResponse)
-			Expect(ok).To(BeTrue())
-			Expect(response).To(HaveLen(2))
-
-			// Check if both pools are present
-			poolIds := make([]string, len(response))
-			for i, pool := range response {
-				poolIds[i] = pool.ResourcePoolId
-			}
-			Expect(poolIds).To(ContainElements("pool1", "pool2"))
-		})
-
-		It("should handle empty BMH list", func() {
-			client := fake.NewClientBuilder().
-				WithScheme(scheme).
-				Build()
-
-			result, err := GetResourcePools(ctx, client)
-			Expect(err).ToNot(HaveOccurred())
-
-			response, ok := result.(inventory.GetResourcePools200JSONResponse)
-			Expect(ok).To(BeTrue())
-			Expect(response).To(HaveLen(0))
 		})
 	})
 
@@ -1231,16 +1168,17 @@ var _ = Describe("Inventory", func() {
 			scheme = runtime.NewScheme()
 			Expect(metal3v1alpha1.AddToScheme(scheme)).To(Succeed())
 			Expect(pluginsv1alpha1.AddToScheme(scheme)).To(Succeed())
+			Expect(inventoryv1alpha1.AddToScheme(scheme)).To(Succeed())
 		})
 
 		It("should return resources from BMHs included in inventory", func() {
-			// Create BMH with required labels and valid state
+			// Create BMH with required label and valid state
 			testUID := types.UID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
+			poolUID := types.UID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 			bmh := createBasicBMH("test-bmh", "test-ns")
 			bmh.UID = testUID
 			bmh.Labels = map[string]string{
-				LabelResourcePoolID: "pool123",
-				LabelSiteID:         "site123",
+				constants.LabelResourcePoolName: "pool123",
 			}
 			bmh.Status.Provisioning.State = metal3v1alpha1.StateAvailable
 
@@ -1252,9 +1190,23 @@ var _ = Describe("Inventory", func() {
 			node.Spec.HwMgrNodeId = "test-bmh"
 			node.Spec.HwMgrNodeNs = "test-ns"
 
+			// Create ResourcePool CR that the BMH references
+			pool := &inventoryv1alpha1.ResourcePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pool123",
+					UID:  poolUID,
+				},
+				Status: inventoryv1alpha1.ResourcePoolStatus{
+					Conditions: []metav1.Condition{{
+						Type:   inventoryv1alpha1.ConditionTypeReady,
+						Status: metav1.ConditionTrue,
+					}},
+				},
+			}
+
 			client := fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithObjects(bmh, hwdata, node).
+				WithObjects(bmh, hwdata, node, pool).
 				Build()
 
 			result, err := GetResources(ctx, logger, client)
@@ -1266,25 +1218,40 @@ var _ = Describe("Inventory", func() {
 
 			resource := response[0]
 			Expect(resource.Name).To(Equal("test-bmh"))
-			Expect(resource.ResourceId).To(Equal(string(testUID)))
-			Expect(resource.ResourcePoolId).To(Equal("pool123"))
+			Expect(resource.ResourceId).To(Equal(uuid.MustParse(string(testUID))))
+			Expect(resource.ResourcePoolId).To(Equal(uuid.MustParse(string(poolUID))))
 			Expect(resource.HwProfile).To(Equal("profile123"))
 		})
 
 		It("should handle BMH without corresponding AllocatedNode", func() {
-			// Create BMH with required labels and valid state
+			// Create BMH with required label and valid state
+			poolUID := types.UID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{
-				LabelResourcePoolID: "pool123",
-				LabelSiteID:         "site123",
+				constants.LabelResourcePoolName: "pool123",
 			})
+			bmh.UID = types.UID("b2c3d4e5-f6a7-8901-bcde-f12345678901")
 			bmh.Status.Provisioning.State = metal3v1alpha1.StateAvailable
 
 			// Create HardwareData for the BMH
 			hwdata := createHardwareData("test-bmh", "test-ns")
 
+			// Create ResourcePool CR that the BMH references
+			pool := &inventoryv1alpha1.ResourcePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pool123",
+					UID:  poolUID,
+				},
+				Status: inventoryv1alpha1.ResourcePoolStatus{
+					Conditions: []metav1.Condition{{
+						Type:   inventoryv1alpha1.ConditionTypeReady,
+						Status: metav1.ConditionTrue,
+					}},
+				},
+			}
+
 			client := fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithObjects(bmh, hwdata).
+				WithObjects(bmh, hwdata, pool).
 				Build()
 
 			result, err := GetResources(ctx, logger, client)
@@ -1297,6 +1264,125 @@ var _ = Describe("Inventory", func() {
 			resource := response[0]
 			Expect(resource.Name).To(Equal("test-bmh"))
 			Expect(resource.HwProfile).To(Equal("")) // No corresponding node
+		})
+
+		It("should omit BMH when ResourcePool CR is missing for the pool label", func() {
+			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{
+				constants.LabelResourcePoolName: "pool123",
+			})
+			bmh.Status.Provisioning.State = metal3v1alpha1.StateAvailable
+			hwdata := createHardwareData("test-bmh", "test-ns")
+
+			client := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(bmh, hwdata).
+				Build()
+
+			result, err := GetResources(ctx, logger, client)
+			Expect(err).ToNot(HaveOccurred())
+
+			response, ok := result.(inventory.GetResources200JSONResponse)
+			Expect(ok).To(BeTrue())
+			Expect(response).To(BeEmpty())
+		})
+
+		It("should omit BMH when only resource-selector labels exist (no resolvable resourcePoolId)", func() {
+			bmh := createBasicBMH("test-bmh", "test-ns")
+			bmh.Labels = map[string]string{
+				LabelPrefixResourceSelector + "zone": "east",
+			}
+			bmh.Status.Provisioning.State = metal3v1alpha1.StateAvailable
+			hwdata := createHardwareData("test-bmh", "test-ns")
+
+			client := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(bmh, hwdata).
+				Build()
+
+			result, err := GetResources(ctx, logger, client)
+			Expect(err).ToNot(HaveOccurred())
+
+			response, ok := result.(inventory.GetResources200JSONResponse)
+			Expect(ok).To(BeTrue())
+			Expect(response).To(BeEmpty())
+		})
+
+		It("should include only BMHs whose pool label maps to a ResourcePool CR", func() {
+			poolUID := types.UID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+			goodBMH := createBMHWithLabels("good-bmh", "test-ns", map[string]string{
+				constants.LabelResourcePoolName: "pool123",
+			})
+			goodBMH.UID = types.UID("c3d4e5f6-a7b8-9012-cdef-123456789012")
+			goodBMH.Status.Provisioning.State = metal3v1alpha1.StateAvailable
+			badBMH := createBMHWithLabels("bad-bmh", "test-ns", map[string]string{
+				constants.LabelResourcePoolName: "missing-pool",
+			})
+			badBMH.UID = types.UID("d4e5f6a7-b8c9-0123-defa-234567890123")
+			badBMH.Status.Provisioning.State = metal3v1alpha1.StateAvailable
+			hwGood := createHardwareData("good-bmh", "test-ns")
+			hwBad := createHardwareData("bad-bmh", "test-ns")
+			pool := &inventoryv1alpha1.ResourcePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pool123",
+					UID:  poolUID,
+				},
+				Status: inventoryv1alpha1.ResourcePoolStatus{
+					Conditions: []metav1.Condition{{
+						Type:   inventoryv1alpha1.ConditionTypeReady,
+						Status: metav1.ConditionTrue,
+					}},
+				},
+			}
+
+			client := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(goodBMH, badBMH, hwGood, hwBad, pool).
+				Build()
+
+			result, err := GetResources(ctx, logger, client)
+			Expect(err).ToNot(HaveOccurred())
+
+			response, ok := result.(inventory.GetResources200JSONResponse)
+			Expect(ok).To(BeTrue())
+			Expect(response).To(HaveLen(1))
+			Expect(response[0].Name).To(Equal("good-bmh"))
+			Expect(response[0].ResourcePoolId).To(Equal(uuid.MustParse(string(poolUID))))
+		})
+
+		It("should skip BMHs whose ResourcePool exists but is not Ready", func() {
+			poolUID := types.UID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+			bmh := createBMHWithLabels("test-bmh", "test-ns", map[string]string{
+				constants.LabelResourcePoolName: "pool123",
+			})
+			bmh.UID = types.UID("e5f6a7b8-c9d0-1234-efab-345678901234")
+			bmh.Status.Provisioning.State = metal3v1alpha1.StateAvailable
+			hwdata := createHardwareData("test-bmh", "test-ns")
+
+			pool := &inventoryv1alpha1.ResourcePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pool123",
+					UID:  poolUID,
+				},
+				Status: inventoryv1alpha1.ResourcePoolStatus{
+					Conditions: []metav1.Condition{{
+						Type:   inventoryv1alpha1.ConditionTypeReady,
+						Status: metav1.ConditionFalse,
+						Reason: inventoryv1alpha1.ReasonParentNotFound,
+					}},
+				},
+			}
+
+			client := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(bmh, hwdata, pool).
+				Build()
+
+			result, err := GetResources(ctx, logger, client)
+			Expect(err).ToNot(HaveOccurred())
+
+			response, ok := result.(inventory.GetResources200JSONResponse)
+			Expect(ok).To(BeTrue())
+			Expect(response).To(BeEmpty())
 		})
 	})
 
@@ -1333,9 +1419,8 @@ var _ = Describe("Inventory", func() {
 
 	Describe("Constants", func() {
 		It("should have correct label prefixes", func() {
-			Expect(LabelPrefixResources).To(Equal("resources.clcm.openshift.io/"))
-			Expect(LabelResourcePoolID).To(Equal("resources.clcm.openshift.io/resourcePoolId"))
-			Expect(LabelSiteID).To(Equal("resources.clcm.openshift.io/siteId"))
+			Expect(constants.LabelPrefixResources).To(Equal("resources.clcm.openshift.io/"))
+			Expect(constants.LabelResourcePoolName).To(Equal("resources.clcm.openshift.io/resourcePoolName"))
 			Expect(LabelPrefixResourceSelector).To(Equal("resourceselector.clcm.openshift.io/"))
 			Expect(constants.LabelPrefixInterfaces).To(Equal("interfacelabel.clcm.openshift.io/"))
 		})
