@@ -31,7 +31,6 @@ provisioning.
   - [Check Infrastructure Hierarchy CRs](#check-infrastructure-hierarchy-crs)
 - [Complete Example](#complete-example)
 - [Deploying via GitOps](#deploying-via-gitops)
-- [Deleting CRs](#deleting-crs)
 
 **Prerequisites:** Set up the GitOps repository structure as described in
 [GitOps Repository Layout and Setup](./gitops-layout-and-setup.md). Server
@@ -707,8 +706,3 @@ CRs are stored in a Git repository and synced to the hub cluster via ArgoCD.
 See [GitOps Layout and Setup](./gitops-layout-and-setup.md) for the recommended
 directory structure and ArgoCD configuration.
 
-## Deleting CRs
-
-To remove the infrastructure hierarchy CRs, delete them in reverse order
-(children before parents) to avoid transient `Ready=False` states. For detailed instructions
-including operator uninstallation, see the [Uninstall Guide](./uninstall.md).

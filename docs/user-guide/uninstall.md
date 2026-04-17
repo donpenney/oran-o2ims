@@ -3,40 +3,34 @@
 This guide covers the proper procedure for uninstalling the O-Cloud Manager operator
 and troubleshooting common issues.
 
-**Important:** OLM does not automatically delete Custom Resources (CRs) when an operator
-is uninstalled. This is a safety feature to prevent data loss.
-
 The correct uninstall order is:
 
-1. **Delete CRs** - Remove all Custom Resources managed by the operator
+1. **Delete ProvisioningRequests** - Remove all ProvisioningRequest CRs to trigger
+   proper cleanup of provisioned clusters and hardware
 2. **Uninstall the operator** - Remove the operator via OLM (Console or CLI)
-3. **(Optional) Delete CRDs** - Remove Custom Resource Definitions for complete cleanup
+3. **Delete CRDs** - Remove Custom Resource Definitions and any remaining CRs
+4. **Delete the namespace** - Remove the operator namespace
 
 ## Before Uninstalling
 
-The Location, OCloudSite, and ResourcePool Custom Resources form a parent-child hierarchy.
-While CRs can be deleted in any order, deleting a parent while children still exist will
-cause the children to become `Ready=False` with reason `ParentNotFound`.
-
-**Recommended:** Delete resources in reverse hierarchy order (children before parents)
-for a clean removal:
+All ProvisioningRequest CRs must be deleted before uninstalling the operator. The
+ProvisioningRequest controller runs finalizers that handle critical cleanup, including
+deprovisioning clusters, deallocating hardware, and powering off bare-metal hosts.
+If the operator is removed before these finalizers complete, the cleanup will not
+run and resources will be left in an inconsistent state.
 
 ```bash
-# 1. Delete ResourcePools
-oc delete resourcepools --all -n oran-o2ims
+# Delete all ProvisioningRequests and wait for finalizers to complete
+oc delete provisioningrequests --all
 
-# 2. Delete OCloudSites
-oc delete ocloudsites --all -n oran-o2ims
-
-# 3. Delete Locations
-oc delete locations --all -n oran-o2ims
-
-# 4. Delete the Inventory CR
-oc delete inventory --all -n oran-o2ims
-
-# 5. Check for any remaining resources and delete if needed
-oc get all -n oran-o2ims
+# Verify all ProvisioningRequests have been fully deleted
+oc get provisioningrequests
 ```
+
+> [!WARNING]
+> Do not uninstall the operator while ProvisioningRequests are still being
+> deleted. Wait until `oc get provisioningrequests` returns no resources before
+> proceeding.
 
 Then proceed with operator uninstallation via the OpenShift Console or CLI.
 
@@ -57,10 +51,21 @@ oc delete subscription o-cloud-manager -n oran-o2ims
 oc delete csv -n oran-o2ims -l operators.coreos.com/o-cloud-manager.oran-o2ims
 ```
 
-## (Optional) Deleting CRDs
+## Deleting CRDs
 
-After uninstalling the operator, you can optionally delete the CRDs for a complete cleanup:
+After uninstalling the operator, delete the CRDs. This will also delete any
+remaining CRs (infrastructure hierarchy, hardware templates, etc.):
 
 ```bash
-oc get crd | grep -E 'ocloud.openshift.io|clcm.openshift.io|plugins.clcm.openshift.io' | awk '{print $1}' | xargs oc delete crd
+oc get crd --no-headers -o custom-columns=NAME:.metadata.name \
+  | grep -e ocloud.openshift.io -e clcm.openshift.io \
+  | xargs --no-run-if-empty oc delete crd
+```
+
+## Deleting the Namespace
+
+After deleting the CRDs, delete the operator namespace:
+
+```bash
+oc delete namespace oran-o2ims
 ```
