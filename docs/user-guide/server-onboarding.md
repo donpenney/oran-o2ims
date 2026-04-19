@@ -71,9 +71,9 @@ The onboarding process has two parts:
 5. Allowing Metal3 to inspect the host and populate hardware inventory data.
    This process typically takes several minutes per host.
 
-Once onboarded, servers are available for selection by the Metal3 hardware plugin
-when processing [ProvisioningRequests](./cluster-provisioning.md). The plugin
-matches servers based on
+Once onboarded, servers are available for selection by the O-Cloud Manager
+when processing [ProvisioningRequests](./cluster-provisioning.md). Servers are
+matched based on
 [resource selector criteria](./template-overview.md#hardwaretemplate) defined in
 the HardwareTemplate.
 
@@ -424,7 +424,7 @@ the actual NIC names and MAC addresses on that specific server.
 
 > [!NOTE]
 > The `boot-interface` label is required if the BMH's `spec.bootMACAddress` is
-> not set. The hardware plugin uses this label to determine the boot NIC's MAC
+> not set. The O-Cloud Manager uses this label to determine the boot NIC's MAC
 > address from the hardware inventory. If `spec.bootMACAddress` is already set,
 > the `boot-interface` label is optional.
 
@@ -465,7 +465,7 @@ Key fields in the BareMetalHost spec:
 
 | Field | Description |
 |---|---|
-| `spec.online` | Set to `false` for initial onboarding. The hardware plugin manages power state during provisioning. |
+| `spec.online` | Set to `false` for initial onboarding. The O-Cloud Manager manages power state during provisioning. |
 | `spec.bmc.address` | BMC/iDRAC address in Redfish format (e.g., `idrac-virtualmedia+https://<ip>/redfish/v1/Systems/System.Embedded.1`) |
 | `spec.bmc.credentialsName` | Name of the BMC credentials Secret |
 | `spec.bmc.disableCertificateVerification` | Set to `true` if the BMC uses a self-signed certificate |
@@ -486,7 +486,7 @@ The HardwareData CR contains:
 - Network interfaces (model, MAC address, speed)
 - System manufacturer and product name
 
-This data is used by the hardware plugin for
+This data is used by the O-Cloud Manager for
 [hardware data selectors](./template-overview.md#hardwaretemplate) in the
 HardwareTemplate `resourceSelector`. For example, a selector like
 `hardwaredata/num_threads;>=: "64"` is evaluated against the HardwareData CR
@@ -559,9 +559,8 @@ After the collector processes the CRs, verify via the Inventory API.
 > | Locations, OCloudSites, ResourcePools | Watch-based | Nearly immediate |
 > | Resources (BareMetalHosts) | Polling-based | Up to 1 minute (default interval) |
 >
-> The Resources endpoint data comes from the hardware plugin, which is polled
-> every minute. If a newly labeled BMH does not appear immediately, wait for
-> the next polling cycle.
+> The Resources endpoint data is polled every minute. If a newly labeled BMH
+> does not appear immediately, wait for the next polling cycle.
 
 First, set up authentication (see
 [Testing API endpoints](environment-setup.md#testing-api-endpoints-on-a-cluster)
