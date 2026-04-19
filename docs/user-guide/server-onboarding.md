@@ -29,12 +29,14 @@ provisioning.
   - [Hardware Inspection](#hardware-inspection)
 - [Validation](#validation)
   - [Check Infrastructure Hierarchy CRs](#check-infrastructure-hierarchy-crs)
+  - [Check BareMetalHosts](#check-baremetalhosts)
+  - [Verify via API](#verify-via-api)
 - [Complete Example](#complete-example)
 - [Deploying via GitOps](#deploying-via-gitops)
 
-**Prerequisites:** Set up the GitOps repository structure as described in
-[GitOps Repository Layout and Setup](./gitops-layout-and-setup.md). Server
-inventory resources are typically managed via GitOps.
+**Note:** The resources in this guide can be applied directly with `oc apply`
+or managed via GitOps. For GitOps-based management, see
+[GitOps Repository Layout and Setup](./gitops-layout-and-setup.md).
 
 ## Overview
 
@@ -507,7 +509,7 @@ inventory are correct.
 
 ```bash
 $ oc get locations,ocloudsites,resourcepools -n oran-o2ims \
-  -o custom-columns='NAME:.metadata.name,KIND:.kind,READY:.status.conditions[0].status'
+  -o custom-columns='NAME:.metadata.name,KIND:.kind,READY:.status.conditions[?(@.type=="Ready")].status'
 NAME                KIND           READY
 east-datacenter     Location       True
 site-east-1         OCloudSite     True
