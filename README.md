@@ -52,8 +52,9 @@ The typical workflow for deploying and managing clusters with the O-Cloud Manage
 
 ### APIs
 
-- [Inventory API](./docs/user-guide/inventory-api.md)
-- [Cluster API](./docs/user-guide/cluster-api.md)
+- [API Overview](./docs/user-guide/api-overview.md) — authentication, filtering, field selection
+- [Inventory API](./docs/user-guide/inventory-api.md) — locations, sites, pools, resources
+- [Cluster API](./docs/user-guide/cluster-api.md) — node clusters, cluster resources
 - [Alarms API](./docs/user-guide/alarms-user-guide.md)
 
 ### Troubleshooting
