@@ -254,6 +254,16 @@ made to accommodate the REST API become optional:
   to better reflect its current role of building the NAR from merged
   hwMgmt data.
 
+- **`HardwarePluginLabel` on NAR and AllocatedNode**: The
+  `clcm.openshift.io/hardware-plugin` label was needed when multiple
+  hardware manager plugins could coexist, so each plugin's controller could
+  filter for its own NARs via a label-selector watch predicate. Since the
+  re-architecture consolidates to a single hardware manager, this label is
+  no longer necessary. Removing it requires updating the Metal3 controller's
+  `SetupWithManager` watch predicate (in both the NAR and AllocatedNode
+  controllers) and removing the label from all creation sites in both the
+  PR controller and the Metal3 controller.
+
 These simplifications should be evaluated after Phase 1 based on whether
 the complexity reduction justifies the churn.
 
