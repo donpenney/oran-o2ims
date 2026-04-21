@@ -6,6 +6,18 @@ SPDX-License-Identifier: Apache-2.0
 
 # Proposal: Remove NAR REST API and Simplify Hardware Manager Architecture
 
+```yaml
+title: nar-api-removal
+authors:
+  - @dpenney
+reviewers:
+  - TBD
+approvers:
+  - TBD
+creation-date: 2026-03-31
+last-updated: 2026-04-21
+```
+
 ## Summary
 
 Remove the internal REST API layer between the ProvisioningRequest (PR)
