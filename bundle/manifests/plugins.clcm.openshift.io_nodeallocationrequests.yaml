@@ -55,11 +55,6 @@ spec:
           spec:
             description: NodeAllocationRequestSpec describes a group of nodes to allocate
             properties:
-              bootInterfaceLabel:
-                description: |-
-                  BootInterfaceLabel is the label of the boot interface.
-                  Deprecated: This field is deprecated and will be ignored. The boot interface label is now fixed as "boot-interface".
-                type: string
               callback:
                 description: |-
                   Callback defines the configuration for receiving notifications when the NodeAllocationRequest

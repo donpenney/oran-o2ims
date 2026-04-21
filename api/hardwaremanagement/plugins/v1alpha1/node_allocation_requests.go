@@ -75,13 +75,6 @@ type NodeAllocationRequestSpec struct {
 	//+operator-sdk:csv:customresourcedefinitions:type=spec
 	ConfigTransactionId int64 `json:"configTransactionId"`
 
-	// BootInterfaceLabel is the label of the boot interface.
-	// Deprecated: This field is deprecated and will be ignored. The boot interface label is now fixed as "boot-interface".
-	// +optional
-	// +kubebuilder:validation:Optional
-	//+operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Boot Interface Label (Deprecated)",xDescriptors={"urn:alm:descriptor:com.tectonic.ui:text"}
-	BootInterfaceLabel string `json:"bootInterfaceLabel,omitempty"`
-
 	// Callback defines the configuration for receiving notifications when the NodeAllocationRequest
 	// operation is completed or fails. If not specified, no callback will be made.
 	// +optional
