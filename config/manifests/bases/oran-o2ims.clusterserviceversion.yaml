@@ -489,13 +489,6 @@ spec:
         version: v1
       specDescriptors:
       - description: |-
-          BootInterfaceLabel is the label of the boot interface.
-          Deprecated: This field is deprecated and will be ignored. The boot interface label is now fixed as "boot-interface".
-        displayName: Boot Interface Label (Deprecated)
-        path: bootInterfaceLabel
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:text
-      - description: |-
           Callback defines the configuration for receiving notifications when the NodeAllocationRequest
           operation is completed or fails. If not specified, no callback will be made.
         displayName: Callback Configuration
