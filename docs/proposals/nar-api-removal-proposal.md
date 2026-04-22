@@ -213,6 +213,10 @@ Single clean sweep of all dead code:
 - Delete `hwmgr-plugins/api/server/nar-callback/` (callback server)
 - Delete codegen config files
 - Delete mock interfaces (`internal/controllers/mocks/`)
+- Delete mock hardware plugin server
+  (`internal/controllers/mock_hardware_plugin_server.go`) — no longer used
+  by the PR controller after Phase 1, and the e2e tests no longer need it
+  since NARs are created directly via K8s client
 
 ### Phase 4: Remove hardwareplugin-manager-server
 
