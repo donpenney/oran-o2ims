@@ -154,7 +154,7 @@ operations on NAR CRs:
   map from the ClusterTemplate's `hwMgmtDefaults`), so no HardwareTemplate
   lookup is needed.
 - Rewrite `createOrUpdateNodeAllocationRequest` to use `client.Create` and
-  `client.Update`
+  `client.Patch`
 - Rewrite `getNodeAllocationRequestResponse` to use `client.Get` and return
   the CRD type directly
 - Rewrite `setNARClusterProvisioned` and `syncNARSkipCleanup` to use
@@ -291,4 +291,4 @@ the complexity reduction justifies the churn.
 | Large change scope | Phased approach allows incremental delivery and testing |
 | Test coverage gaps | Each phase includes test refactoring. Phase 1 replaces mock REST with fake K8s clients. |
 | Phase 5 is a breaking change | Align with a release boundary that already includes breaking changes |
-| RBAC changes for PR controller | Straightforward — add NAR CR permissions to the operator's ClusterRole |
+| RBAC changes for PR controller | Already covered — existing kubebuilder markers provide the necessary permissions |
