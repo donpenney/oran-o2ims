@@ -70,17 +70,9 @@ of the O2IMS controllers package. The suite supports the following test categori
    - Pod readiness and status monitoring
    - Inventory service lifecycle
 
-9. Mock Hardware Plugin Server (mock_hardware_plugin_server.go):
-   - Simulated hardware plugin API endpoints
-   - NodeAllocationRequest lifecycle testing
-   - AllocatedNode management simulation
-   - Authentication testing scenarios
-   - Status and condition management simulation
-
 Test Infrastructure:
 - Ginkgo BDD-style test framework with Gomega assertions
 - Fake Kubernetes client with comprehensive scheme registration
-- Mock hardware plugin server for integration testing
 - BMC secret and authentication setup for realistic scenarios
 - Status subresource support for all custom resources
 - Indexing support for efficient resource lookups
@@ -121,7 +113,6 @@ import (
 
 	bmhv1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	ibguv1alpha1 "github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/imagebasedgroupupgrades/v1alpha1"
-	"github.com/openshift-kni/oran-o2ims/api/common"
 	pluginsv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/plugins/v1alpha1"
 	hwmgmtv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
 	inventoryv1alpha1 "github.com/openshift-kni/oran-o2ims/api/inventory/v1alpha1"
@@ -203,28 +194,6 @@ func (c *SSACompatibleClient) handleServerSideApply(ctx context.Context, obj cli
 }
 
 func getFakeClientFromObjects(objs ...client.Object) client.WithWatch {
-	c, _ := getFakeClientAndMockServer(objs...)
-	return c
-}
-
-func getFakeClientAndMockServer(objs ...client.Object) (client.WithWatch, *MockHardwarePluginServer) {
-	// Create a basic auth secret for test authentication
-	basicAuthSecret := "test-auth-secret"
-	authSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      basicAuthSecret,
-			Namespace: testHwMgrPluginNameSpace,
-		},
-		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{
-			"username": []byte("test-user"),
-			"password": []byte("test-password"),
-		},
-	}
-
-	// Note: BMC secrets are created by individual tests in their BeforeEach blocks
-	// to avoid resource conflicts between tests
-
 	// Create the Inventory CRD object for CRD ownership of cluster-scoped resources
 	inventoryCRD := &apiextensionsv1.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{
@@ -232,11 +201,10 @@ func getFakeClientAndMockServer(objs ...client.Object) (client.WithWatch, *MockH
 		},
 	}
 
-	// First create the fake client
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(objs...).
-		WithObjects([]client.Object{authSecret, inventoryCRD}...).
+		WithObjects(inventoryCRD).
 		WithStatusSubresource(&inventoryv1alpha1.Inventory{}).
 		WithStatusSubresource(&provisioningv1alpha1.ClusterTemplate{}).
 		WithStatusSubresource(&provisioningv1alpha1.ProvisioningRequest{}).
@@ -253,21 +221,15 @@ func getFakeClientAndMockServer(objs ...client.Object) (client.WithWatch, *MockH
 		}).
 		Build()
 
-	// Start mock hardware plugin server for tests with the client
-	mockServer := NewMockHardwarePluginServerWithClient(fakeClient)
-
-	// Add fake Metal3 hardware plugin CR pointing to mock server with Basic auth
+	// Add fake Metal3 hardware plugin CR.
+	// ApiRoot is a required field but unused since the PR controller accesses NARs directly.
 	metal3HwPlugin := &hwmgmtv1alpha1.HardwarePlugin{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: testHwMgrPluginNameSpace,
 			Name:      testMetal3HardwarePluginRef,
 		},
 		Spec: hwmgmtv1alpha1.HardwarePluginSpec{
-			ApiRoot: mockServer.GetURL(), // Point to mock server instead of localhost:8443
-			AuthClientConfig: &common.AuthClientConfig{
-				Type:            common.Basic,
-				BasicAuthSecret: &basicAuthSecret,
-			},
+			ApiRoot: "https://localhost:8443",
 		},
 		Status: hwmgmtv1alpha1.HardwarePluginStatus{
 			Conditions: []metav1.Condition{
@@ -289,7 +251,7 @@ func getFakeClientAndMockServer(objs ...client.Object) (client.WithWatch, *MockH
 	}
 
 	// Wrap the fake client with SSA compatibility for testing
-	return &SSACompatibleClient{WithWatch: fakeClient}, mockServer
+	return &SSACompatibleClient{WithWatch: fakeClient}
 }
 
 // Logger used for tests:
