@@ -50,7 +50,6 @@ import (
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	policiesv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
 
-	narcallback "github.com/openshift-kni/oran-o2ims/hwmgr-plugins/api/server/nar-callback"
 	"github.com/openshift-kni/oran-o2ims/internal"
 	"github.com/openshift-kni/oran-o2ims/internal/controllers"
 	"github.com/openshift-kni/oran-o2ims/internal/exit"
@@ -101,12 +100,6 @@ func ControllerManager() *cobra.Command {
 		true,
 		"Enable the o2ims validating webhooks")
 	flags.StringVar(
-		&c.narCallbackServerAddr,
-		"nodeallocationrequest-callback-server-address",
-		":8090",
-		"The address the NodeAllocationRequest callback server binds to.",
-	)
-	flags.StringVar(
 		&c.image,
 		imageFlagName,
 		// Intentionally setting the default value to "" if the environment variable is not set to ensure we never
@@ -120,14 +113,13 @@ func ControllerManager() *cobra.Command {
 // ControllerManagerCommand contains the data and logic needed to run the `start controller-manager`
 // command.
 type ControllerManagerCommand struct {
-	metricsAddr           string
-	metricsCertDir        string
-	enableHTTP2           bool
-	enableLeaderElection  bool
-	enableWebhooks        bool
-	probeAddr             string
-	image                 string
-	narCallbackServerAddr string
+	metricsAddr          string
+	metricsCertDir       string
+	enableHTTP2          bool
+	enableLeaderElection bool
+	enableWebhooks       bool
+	probeAddr            string
+	image                string
 	svcutils.CommonServerConfig
 }
 
@@ -333,46 +325,15 @@ func (c *ControllerManagerCommand) run(cmd *cobra.Command, argv []string) error 
 		return exit.Error(1)
 	}
 
-	narCallbackServer := narcallback.NewNodeAllocationRequestCallbackServer(
-		mgr.GetClient(),
-		logger.With("Callback", "NodeAllocationRequest"),
-	)
-
 	serverErrors := make(chan error, 1)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go func() {
-		logger.Info("About to initialize the NAR Callback server")
-
-		// Define NodeAllocationRequest callback configuration
-		callbackConfig := c.CommonServerConfig
-		callbackConfig.Listener.Address = c.narCallbackServerAddr
-		callbackConfig.TLS.CertFile = "/secrets/tls/nar-callback/tls.crt"
-		callbackConfig.TLS.KeyFile = "/secrets/tls/nar-callback/tls.key"
-
-		if err := narCallbackServer.Serve(ctx, callbackConfig); err != nil {
-			logger.Error("NAR Callback server failed", "error", err)
-		}
-	}()
-
-	// Extract port from callback server address for callback URL construction
-	callbackPort, err := ctlrutils.ExtractPortFromAddress(c.narCallbackServerAddr)
-	if err != nil {
-		logger.ErrorContext(
-			ctx,
-			"Failed to extract port from callback server address",
-			slog.String("address", c.narCallbackServerAddr),
-			slog.String("error", err.Error()),
-		)
-		return exit.Error(1)
-	}
 
 	// Start the Provisioning Request controller.
 	if err = (&controllers.ProvisioningRequestReconciler{
-		Client:         mgr.GetClient(),
-		Logger:         logger.With("controller", "ProvisioningRequest"),
-		CallbackConfig: ctlrutils.NewNarCallbackConfig(callbackPort),
+		Client: mgr.GetClient(),
+		Logger: logger.With("controller", "ProvisioningRequest"),
 	}).SetupWithManager(mgr); err != nil {
 		logger.ErrorContext(
 			ctx,
