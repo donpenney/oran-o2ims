@@ -27,3 +27,7 @@
 # ginkgo code coverage
 coverprofile.out
 coverage/
+
+# AI agents
+CLAUDE.local.md
+.claude/settings.local.json
