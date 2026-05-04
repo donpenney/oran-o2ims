@@ -14,22 +14,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	metal3v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	pluginsv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/plugins/v1alpha1"
 	hwmgmtv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
 	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
-	"github.com/openshift-kni/oran-o2ims/internal/constants"
 )
 
 const (
 	bmhNamespaceLabel = "baremetalhost.metal3.io/namespace"
-)
-
-var (
-	oranHwUtilsLog = ctrl.Log.WithName("oranHwUtilsLog")
 )
 
 // ConditionDoesNotExistsErr represents an error when a specific condition is missing
@@ -83,50 +77,6 @@ func GetBareMetalHostForAllocatedNode(ctx context.Context, c client.Client, allo
 	}
 
 	return &bmhList.Items[0], nil
-}
-
-// copyHwMgrPluginBMCSecret copies the BMC secret from the plugin namespace to the cluster namespace
-func copyHwMgrPluginBMCSecret(ctx context.Context, c client.Client, name, sourceNamespace, targetNamespace string) error {
-
-	// if the secret already exists in the target namespace, do nothing
-	secret := &corev1.Secret{}
-	exists, err := DoesK8SResourceExist(
-		ctx, c, name, targetNamespace, secret)
-	if err != nil {
-		return fmt.Errorf("failed to check if secret exists in namespace %s: %w", targetNamespace, err)
-	}
-	if exists {
-		oranHwUtilsLog.Info("BMC secret already exists in the cluster namespace",
-			"name", name, "namespace", targetNamespace)
-		return nil
-	}
-
-	if err := CopyK8sSecret(ctx, c, name, sourceNamespace, targetNamespace); err != nil {
-		return fmt.Errorf("failed to copy Kubernetes secret: %w", err)
-	}
-
-	return nil
-}
-
-// CopyBMCSecrets copies BMC secrets from the operator namespace to the cluster namespace.
-func CopyBMCSecrets(ctx context.Context, c client.Client, hwNodes map[string][]NodeInfo,
-	clusterNamespace string) error {
-
-	// BMC secrets are in the operator's namespace (same as HardwarePlugins)
-	sourceNamespace := GetEnvOrDefault(constants.DefaultNamespaceEnvName, constants.DefaultNamespace)
-	for _, nodeInfos := range hwNodes {
-		for _, node := range nodeInfos {
-
-			// TODO: change the copying of secrets functionality -> create secret with BMC.Username, BMC.Password
-
-			err := copyHwMgrPluginBMCSecret(ctx, c, node.BmcCredentials, sourceNamespace, clusterNamespace)
-			if err != nil {
-				return fmt.Errorf("copy BMC secret %s from the operator namespace %s to the cluster namespace %s failed: %w",
-					node.BmcCredentials, sourceNamespace, clusterNamespace, err)
-			}
-		}
-	}
-	return nil
 }
 
 func GetPullSecretName(clusterInstance *unstructured.Unstructured) (string, error) {
@@ -300,54 +250,6 @@ func GetStatusMessage(condition hwmgmtv1alpha1.ConditionType) string {
 		return "configuring"
 	}
 	return "provisioning"
-}
-
-// GetHardwarePluginRefFromProvisioningRequest retrieves the HardwarePlugin Reference from the ProvisioningRequest.
-func GetHardwarePluginRefFromProvisioningRequest(ctx context.Context, c client.Client,
-	pr *provisioningv1alpha1.ProvisioningRequest) (string, error) {
-
-	// Get the ClusterTemplate used by the current ProvisioningRequest.
-	clusterTemplate, err := pr.GetClusterTemplateRef(ctx, c)
-	if err != nil {
-		return "", fmt.Errorf("failed to get ClusterTemplate: %w", err)
-	}
-
-	return clusterTemplate.Spec.TemplateDefaults.HwMgmtDefaults.GetHardwarePluginRef(), nil
-}
-
-// GetHardwarePlugin retrieves the HardwarePlugin resource for a given name.
-// HardwarePlugins are always expected to be in the operator's namespace (OCLOUD_MANAGER_NAMESPACE).
-func GetHardwarePlugin(ctx context.Context, c client.Client, hwPluginName string) (*hwmgmtv1alpha1.HardwarePlugin, error) {
-	hwPlugin := &hwmgmtv1alpha1.HardwarePlugin{}
-
-	namespace := GetEnvOrDefault(constants.DefaultNamespaceEnvName, constants.DefaultNamespace)
-	exists, err := DoesK8SResourceExist(ctx, c, hwPluginName, namespace, hwPlugin)
-	if err != nil {
-		return hwPlugin, fmt.Errorf("failed to retrieve HardwarePlugin resource %s: %w", hwPluginName, err)
-	}
-	if !exists {
-		return hwPlugin, fmt.Errorf("hardwarePlugin resource %s does not exist", hwPluginName)
-	}
-	return hwPlugin, nil
-}
-
-// GetHardwarePluginFromProvisioningRequest retrieves the HardwarePlugin resource associated with a given ProvisioningRequest resource
-func GetHardwarePluginFromProvisioningRequest(ctx context.Context,
-	c client.Client,
-	pr *provisioningv1alpha1.ProvisioningRequest) (*hwmgmtv1alpha1.HardwarePlugin, error) {
-
-	hwpluginRef, err := GetHardwarePluginRefFromProvisioningRequest(ctx, c, pr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve the HardwarePluginRef from the ProvisioningRequest '%s': %w", pr.Name, err)
-	}
-
-	// Get and return the HardwarePlugin CR from the HardwarePluginRef
-	hwPlugin, err := GetHardwarePlugin(ctx, c, hwpluginRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get HardwarePlugin: %w", err)
-	}
-
-	return hwPlugin, nil
 }
 
 // GetBMHNamespace returns the BMH namespace for the given node.
