@@ -105,7 +105,7 @@ issues during code review.
 ## Contributing Requirements
 
 - All commits must be signed off with DCO: `git commit -s`
-- Run `make ci-job` before submitting PRs
+- Commit all files and run `make ci-job` before submitting PRs
 - After API changes: `make generate && make manifests && make bundle`
 - AI-generated code must use `Co-Authored-By` or `Assisted-By` trailer
 - Run lint checks before committing (see [Lint by File Type](#lint-by-file-type))
