@@ -18,6 +18,7 @@ import (
 	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
 	"github.com/openshift-kni/oran-o2ims/internal/constants"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -43,7 +44,7 @@ var _ api.StrictServerInterface = (*ProvisioningServer)(nil)
 
 // baseURL is the prefix for all of our supported API endpoints
 var baseURL = constants.O2IMSProvisioningBaseURL
-var currentVersion = "1.0.0"
+var currentVersion = "1.2.0"
 
 // GetAllVersions handles an API request to fetch all versions
 func (r *ProvisioningServer) GetAllVersions(ctx context.Context, request api.GetAllVersionsRequestObject) (api.GetAllVersionsResponseObject, error) {
@@ -176,7 +177,13 @@ func (r *ProvisioningServer) CreateProvisioningRequest(ctx context.Context, requ
 	}
 
 	slog.Info("Created ProvisioningRequest", "provisioningRequestId", request.Body.ProvisioningRequestId.String())
-	return api.CreateProvisioningRequest201JSONResponse(provisioningRequestInfo), nil
+	location := fmt.Sprintf("%s/provisioningRequests/%s", constants.O2IMSProvisioningBaseURL, request.Body.ProvisioningRequestId)
+	return api.CreateProvisioningRequest201JSONResponse{
+		Body: provisioningRequestInfo,
+		Headers: api.CreateProvisioningRequest201ResponseHeaders{
+			Location: location,
+		},
+	}, nil
 }
 
 // UpdateProvisioningRequest handles an API request to update a provisioning request
@@ -272,7 +279,12 @@ func (r *ProvisioningServer) DeleteProvisioningRequest(ctx context.Context, requ
 		return nil, fmt.Errorf("failed to delete ProvisioningRequest (%s): %w", request.ProvisioningRequestId.String(), err)
 	}
 	slog.Info("The deletion request for ProvisioningRequest has been sent successfully", "provisioningRequestId", request.ProvisioningRequestId.String())
-	return api.DeleteProvisioningRequest200Response{}, nil
+	location := fmt.Sprintf("%s/provisioningRequests/%s", constants.O2IMSProvisioningBaseURL, request.ProvisioningRequestId)
+	return api.DeleteProvisioningRequest202Response{
+		Headers: api.DeleteProvisioningRequest202ResponseHeaders{
+			Location: location,
+		},
+	}, nil
 }
 
 // convertProvisioningRequestCRToApi converts a ProvisioningRequest CR to an API model ProvisioningRequestInfo
@@ -285,7 +297,7 @@ func convertProvisioningRequestCRToApi(id uuid.UUID, provisioningRequest provisi
 		return api.ProvisioningRequestInfo{}, fmt.Errorf("could not convert ProvisioningRequest UID (%s) to uuid: %w",
 			string(provisioningRequest.UID), err)
 	}
-	provisioningRequestInfo.ProvisioningRequestReference = &provisioningRequestReferenceId
+	provisioningRequestInfo.ProvisioningRequestReference = provisioningRequestReferenceId
 
 	// Unmarshal the TemplateParameters bytes into a map
 	var templateParameters = make(map[string]interface{})
@@ -302,33 +314,101 @@ func convertProvisioningRequestCRToApi(id uuid.UUID, provisioningRequest provisi
 		TemplateParameters:    templateParameters,
 	}
 
-	status := api.ProvisioningStatus{}
-	if provisioningRequest.Status.ProvisioningStatus.ProvisioningPhase != "" {
-		provisioningPhase := api.ProvisioningStatusProvisioningPhase(provisioningRequest.Status.ProvisioningStatus.ProvisioningPhase)
-		status.ProvisioningPhase = &provisioningPhase
-	}
-	if provisioningRequest.Status.ProvisioningStatus.ProvisioningDetails != "" {
-		status.Message = &provisioningRequest.Status.ProvisioningStatus.ProvisioningDetails
-	}
-	if !provisioningRequest.Status.ProvisioningStatus.UpdateTime.IsZero() {
-		status.UpdateTime = &provisioningRequest.Status.ProvisioningStatus.UpdateTime.Time
+	provisioningPhase := mapProvisioningPhase(provisioningRequest.Status.ProvisioningStatus.ProvisioningPhase)
+
+	status := api.ProvisioningStatus{
+		ProvisioningPhase:                        provisioningPhase,
+		Message:                                  provisioningRequest.Status.ProvisioningStatus.ProvisioningDetails,
+		UpdateTime:                               provisioningRequest.Status.ProvisioningStatus.UpdateTime.Time,
+		NodeClusterProvisioningStatus:            getNodeClusterProvisioningStatus(provisioningRequest),
+		InfrastructureResourceProvisioningStatus: getInfrastructureResourceProvisioningStatus(provisioningRequest),
 	}
 	provisioningRequestInfo.Status = status
 
-	// Convert the OCloudNodeClusterId string to uuid if it exists
-	if provisioningRequest.Status.ProvisioningStatus.ProvisionedResources != nil &&
-		provisioningRequest.Status.ProvisioningStatus.ProvisionedResources.OCloudNodeClusterId != "" {
-		nodeClusterId, err := uuid.Parse(provisioningRequest.Status.ProvisioningStatus.ProvisionedResources.OCloudNodeClusterId)
-		if err != nil {
-			return api.ProvisioningRequestInfo{}, fmt.Errorf("could not convert OCloudNodeClusterId (%s) to uuid: %w",
-				provisioningRequest.Status.ProvisioningStatus.ProvisionedResources.OCloudNodeClusterId, err)
-		}
-		provisioningRequestInfo.ProvisionedResourceSets = api.ProvisionedResourceSets{
-			NodeClusterId: &nodeClusterId,
-		}
+	provisioningRequestInfo.ProvisionedResourceSet = api.ProvisionedResourceSet{
+		NodeClusterId:             getNodeClusterId(provisioningRequest),
+		InfrastructureResourceIds: getProvisionedInfrastructureResourceIds(provisioningRequest),
 	}
 
 	return provisioningRequestInfo, nil
+}
+
+// mapProvisioningPhase converts the CRD-level lowercase ProvisioningPhase to
+// the O-RAN spec uppercase enum (table 3.4.6.3.3.1-1).
+func mapProvisioningPhase(phase provisioningv1alpha1.ProvisioningPhase) api.ProvisioningStatusProvisioningPhase {
+	switch phase {
+	case provisioningv1alpha1.StateProgressing:
+		return api.ProvisioningStatusProvisioningPhasePROGRESSING
+	case provisioningv1alpha1.StateFulfilled:
+		return api.ProvisioningStatusProvisioningPhaseFULFILLED
+	case provisioningv1alpha1.StateFailed:
+		return api.ProvisioningStatusProvisioningPhaseFAILED
+	case provisioningv1alpha1.StateDeleting:
+		return api.ProvisioningStatusProvisioningPhaseDELETING
+	default:
+		return api.ProvisioningStatusProvisioningPhasePENDING
+	}
+}
+
+func getClusterName(pr provisioningv1alpha1.ProvisioningRequest) string {
+	if pr.Status.Extensions.ClusterDetails == nil {
+		return ""
+	}
+	return pr.Status.Extensions.ClusterDetails.Name
+}
+
+// getNodeClusterId returns the OCloudNodeClusterId from ProvisionedResources, or empty string if unavailable.
+func getNodeClusterId(pr provisioningv1alpha1.ProvisioningRequest) string {
+	if pr.Status.ProvisioningStatus.ProvisionedResources == nil {
+		return ""
+	}
+	return pr.Status.ProvisioningStatus.ProvisionedResources.OCloudNodeClusterId
+}
+
+// getNodeClusterProvisioningStatus builds the per-cluster ResourceProvisioningStatus
+// from existing fields on the ProvisioningRequest CR.
+func getNodeClusterProvisioningStatus(pr provisioningv1alpha1.ProvisioningRequest) api.ResourceProvisioningStatus {
+	ciCond := meta.FindStatusCondition(pr.Status.Conditions,
+		string(provisioningv1alpha1.PRconditionTypes.ClusterInstanceProcessed))
+
+	if ciCond == nil {
+		return api.ResourceProvisioningStatus{
+			ResourceProvisioningPhase: api.ResourceProvisioningPhasePROCESSING,
+		}
+	}
+
+	// CI processing failed
+	if ciCond.Status != metav1.ConditionTrue {
+		phase := api.ResourceProvisioningPhasePROCESSING
+		if ciCond.Reason == string(provisioningv1alpha1.CRconditionReasons.Failed) ||
+			ciCond.Reason == string(provisioningv1alpha1.CRconditionReasons.TimedOut) {
+			phase = api.ResourceProvisioningPhaseFAILED
+		}
+		return api.ResourceProvisioningStatus{
+			ResourceName:              getClusterName(pr),
+			ResourceId:                getNodeClusterId(pr),
+			ResourceProvisioningPhase: phase,
+		}
+	}
+
+	// CI applied successfully: determine phase from ClusterProvisioned condition.
+	phase := api.ResourceProvisioningPhasePROCESSING
+	if cond := meta.FindStatusCondition(pr.Status.Conditions,
+		string(provisioningv1alpha1.PRconditionTypes.ClusterProvisioned)); cond != nil {
+		switch {
+		case cond.Status == metav1.ConditionTrue:
+			phase = api.ResourceProvisioningPhasePROVISIONED
+		case cond.Reason == string(provisioningv1alpha1.CRconditionReasons.Failed) ||
+			cond.Reason == string(provisioningv1alpha1.CRconditionReasons.TimedOut):
+			phase = api.ResourceProvisioningPhaseFAILED
+		}
+	}
+
+	return api.ResourceProvisioningStatus{
+		ResourceName:              getClusterName(pr),
+		ResourceId:                getNodeClusterId(pr),
+		ResourceProvisioningPhase: phase,
+	}
 }
 
 // convertProvisioningRequestApiToCR converts an API model ProvisioningRequestData to a ProvisioningRequest CR
@@ -353,4 +433,33 @@ func convertProvisioningRequestApiToCR(request api.ProvisioningRequestData) (*pr
 	}
 
 	return provisioningRequest, nil
+}
+
+// getInfrastructureResourceProvisioningStatus converts the per-node statuses
+// stored on the ProvisioningRequest CRD to the API []ResourceProvisioningStatus.
+func getInfrastructureResourceProvisioningStatus(pr provisioningv1alpha1.ProvisioningRequest) []api.ResourceProvisioningStatus {
+	if len(pr.Status.Extensions.InfrastructureResourceStatuses) == 0 {
+		return []api.ResourceProvisioningStatus{}
+	}
+	result := make([]api.ResourceProvisioningStatus, 0, len(pr.Status.Extensions.InfrastructureResourceStatuses))
+	for _, s := range pr.Status.Extensions.InfrastructureResourceStatuses {
+		result = append(result, api.ResourceProvisioningStatus{
+			ResourceName:              s.ResourceName,
+			ResourceId:                s.ResourceId,
+			ResourceProvisioningPhase: api.ResourceProvisioningPhase(s.ResourceProvisioningPhase),
+		})
+	}
+	return result
+}
+
+// getProvisionedInfrastructureResourceIds collects ResourceId values from nodes
+// that have reached the PROVISIONED phase.
+func getProvisionedInfrastructureResourceIds(pr provisioningv1alpha1.ProvisioningRequest) []string {
+	ids := make([]string, 0)
+	for _, s := range pr.Status.Extensions.InfrastructureResourceStatuses {
+		if s.ResourceProvisioningPhase == provisioningv1alpha1.ResourceProvisioningPhaseProvisioned {
+			ids = append(ids, s.ResourceId)
+		}
+	}
+	return ids
 }

@@ -31,35 +31,63 @@ const (
 
 // Defines values for ProvisioningStatusProvisioningPhase.
 const (
-	Deleting    ProvisioningStatusProvisioningPhase = "deleting"
-	Failed      ProvisioningStatusProvisioningPhase = "failed"
-	Fulfilled   ProvisioningStatusProvisioningPhase = "fulfilled"
-	Pending     ProvisioningStatusProvisioningPhase = "pending"
-	Progressing ProvisioningStatusProvisioningPhase = "progressing"
+	ProvisioningStatusProvisioningPhaseDELETING    ProvisioningStatusProvisioningPhase = "DELETING"
+	ProvisioningStatusProvisioningPhaseFAILED      ProvisioningStatusProvisioningPhase = "FAILED"
+	ProvisioningStatusProvisioningPhaseFULFILLED   ProvisioningStatusProvisioningPhase = "FULFILLED"
+	ProvisioningStatusProvisioningPhasePENDING     ProvisioningStatusProvisioningPhase = "PENDING"
+	ProvisioningStatusProvisioningPhasePROGRESSING ProvisioningStatusProvisioningPhase = "PROGRESSING"
 )
 
 // Valid indicates whether the value is a known member of the ProvisioningStatusProvisioningPhase enum.
 func (e ProvisioningStatusProvisioningPhase) Valid() bool {
 	switch e {
-	case Deleting:
+	case ProvisioningStatusProvisioningPhaseDELETING:
 		return true
-	case Failed:
+	case ProvisioningStatusProvisioningPhaseFAILED:
 		return true
-	case Fulfilled:
+	case ProvisioningStatusProvisioningPhaseFULFILLED:
 		return true
-	case Pending:
+	case ProvisioningStatusProvisioningPhasePENDING:
 		return true
-	case Progressing:
+	case ProvisioningStatusProvisioningPhasePROGRESSING:
 		return true
 	default:
 		return false
 	}
 }
 
-// ProvisionedResourceSets The resources that have been successfully provisioned as part of the provisioning process.
-type ProvisionedResourceSets struct {
+// Defines values for ResourceProvisioningPhase.
+const (
+	ResourceProvisioningPhaseAWAITINGFREERESOURCES ResourceProvisioningPhase = "AWAITING_FREE_RESOURCES"
+	ResourceProvisioningPhaseFAILED                ResourceProvisioningPhase = "FAILED"
+	ResourceProvisioningPhasePROCESSING            ResourceProvisioningPhase = "PROCESSING"
+	ResourceProvisioningPhasePROVISIONED           ResourceProvisioningPhase = "PROVISIONED"
+)
+
+// Valid indicates whether the value is a known member of the ResourceProvisioningPhase enum.
+func (e ResourceProvisioningPhase) Valid() bool {
+	switch e {
+	case ResourceProvisioningPhaseAWAITINGFREERESOURCES:
+		return true
+	case ResourceProvisioningPhaseFAILED:
+		return true
+	case ResourceProvisioningPhasePROCESSING:
+		return true
+	case ResourceProvisioningPhasePROVISIONED:
+		return true
+	default:
+		return false
+	}
+}
+
+// ProvisionedResourceSet The resources that have been successfully provisioned as part of the provisioning process.
+type ProvisionedResourceSet struct {
+	// InfrastructureResourceIds List of identifiers of the InfrastructureResource objects that have been
+	// provisioned as part of this ProvisioningRequest.
+	InfrastructureResourceIds []string `json:"infrastructureResourceIds"`
+
 	// NodeClusterId Identifier of the NodeCluster that has been provisioned.
-	NodeClusterId *openapi_types.UUID `json:"nodeClusterId,omitempty"`
+	NodeClusterId string `json:"nodeClusterId"`
 }
 
 // ProvisioningRequestData Input parameters for a provisioning request.
@@ -85,14 +113,14 @@ type ProvisioningRequestData struct {
 
 // ProvisioningRequestInfo Information about a provisioning request.
 type ProvisioningRequestInfo struct {
-	// ProvisionedResourceSets The resources that have been successfully provisioned as part of the provisioning process.
-	ProvisionedResourceSets ProvisionedResourceSets `json:"provisionedResourceSets"`
+	// ProvisionedResourceSet The resources that have been successfully provisioned as part of the provisioning process.
+	ProvisionedResourceSet ProvisionedResourceSet `json:"provisionedResourceSet"`
 
 	// ProvisioningRequestData Input parameters for a provisioning request.
 	ProvisioningRequestData ProvisioningRequestData `json:"provisioningRequestData"`
 
 	// ProvisioningRequestReference Unique reference of the provisioning request assigned by O-Cloud.
-	ProvisioningRequestReference *openapi_types.UUID `json:"provisioningRequestReference,omitempty"`
+	ProvisioningRequestReference openapi_types.UUID `json:"provisioningRequestReference"`
 
 	// Status Details about the status of the provisioning request.
 	Status ProvisioningStatus `json:"status"`
@@ -100,18 +128,43 @@ type ProvisioningRequestInfo struct {
 
 // ProvisioningStatus Details about the status of the provisioning request.
 type ProvisioningStatus struct {
+	// InfrastructureResourceProvisioningStatus If the ProvisioningRequest includes provisioning of InfrastructureResource(s),
+	// this attribute will contain the individual provisioning phase of each
+	// InfrastructureResource used to fulfil it.
+	InfrastructureResourceProvisioningStatus []ResourceProvisioningStatus `json:"infrastructureResourceProvisioningStatus"`
+
 	// Message Message describing the status of the provisioning request.
-	Message *string `json:"message,omitempty"`
+	Message string `json:"message"`
+
+	// NodeClusterProvisioningStatus If the ProvisioningRequest includes provisioning of the NodeCluster,
+	// this attribute will contain the provisioning phase of the NodeCluster.
+	NodeClusterProvisioningStatus ResourceProvisioningStatus `json:"nodeClusterProvisioningStatus"`
 
 	// ProvisioningPhase Current state of the provisioning request.
-	ProvisioningPhase *ProvisioningStatusProvisioningPhase `json:"provisioningPhase,omitempty"`
+	ProvisioningPhase ProvisioningStatusProvisioningPhase `json:"provisioningPhase"`
 
 	// UpdateTime Timestamp indicating the last time the status of the provisioning request was updated.
-	UpdateTime *time.Time `json:"updateTime,omitempty"`
+	UpdateTime time.Time `json:"updateTime"`
 }
 
 // ProvisioningStatusProvisioningPhase Current state of the provisioning request.
 type ProvisioningStatusProvisioningPhase string
+
+// ResourceProvisioningPhase The provisioning phase of an individual resource within a ProvisioningRequest.
+type ResourceProvisioningPhase string
+
+// ResourceProvisioningStatus The provisioning status of an individual resource
+// (NodeCluster or InfrastructureResource) within a ProvisioningRequest.
+type ResourceProvisioningStatus struct {
+	// ResourceId Identifier of the resource.
+	ResourceId string `json:"resourceId"`
+
+	// ResourceName Human-readable name of the resource.
+	ResourceName string `json:"resourceName"`
+
+	// ResourceProvisioningPhase The provisioning phase of an individual resource within a ProvisioningRequest.
+	ResourceProvisioningPhase ResourceProvisioningPhase `json:"resourceProvisioningPhase"`
+}
 
 // ProvisioningRequestId defines model for provisioningRequestId.
 type ProvisioningRequestId = openapi_types.UUID
@@ -754,13 +807,21 @@ type CreateProvisioningRequestResponseObject interface {
 	VisitCreateProvisioningRequestResponse(w http.ResponseWriter) error
 }
 
-type CreateProvisioningRequest201JSONResponse ProvisioningRequestInfo
+type CreateProvisioningRequest201ResponseHeaders struct {
+	Location string
+}
+
+type CreateProvisioningRequest201JSONResponse struct {
+	Body    ProvisioningRequestInfo
+	Headers CreateProvisioningRequest201ResponseHeaders
+}
 
 func (response CreateProvisioningRequest201JSONResponse) VisitCreateProvisioningRequestResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
 	w.WriteHeader(201)
 
-	return json.NewEncoder(w).Encode(response)
+	return json.NewEncoder(w).Encode(response.Body)
 }
 
 type CreateProvisioningRequest400ApplicationProblemPlusJSONResponse externalRef0.ProblemDetails
@@ -816,11 +877,17 @@ type DeleteProvisioningRequestResponseObject interface {
 	VisitDeleteProvisioningRequestResponse(w http.ResponseWriter) error
 }
 
-type DeleteProvisioningRequest200Response struct {
+type DeleteProvisioningRequest202ResponseHeaders struct {
+	Location string
 }
 
-func (response DeleteProvisioningRequest200Response) VisitDeleteProvisioningRequestResponse(w http.ResponseWriter) error {
-	w.WriteHeader(200)
+type DeleteProvisioningRequest202Response struct {
+	Headers DeleteProvisioningRequest202ResponseHeaders
+}
+
+func (response DeleteProvisioningRequest202Response) VisitDeleteProvisioningRequestResponse(w http.ResponseWriter) error {
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
 	return nil
 }
 
@@ -1250,65 +1317,73 @@ func (sh *strictHandler) UpdateProvisioningRequest(w http.ResponseWriter, r *htt
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"H4sIAAAAAAAC/+xbe3PbOJL/KijeVc1mj3pacRxd7R8eJ7moahL7bGev6iLXCCKbIiYgQAOgbW3i736F",
-	"B18SKcr2zK131/knlgj0u3/daELfvYAnKWfAlPSm370UC5yAAmE+BTxJOPsVp+RXngLT/2NKPxCgoXke",
-	"ggwESRXhzJt6lzGR6Mv5DF1nINaoIIUEXGcglUQqxgphSpFmSuEOYaUEWWYKJMICEGEBzUIIEWFIxYAE",
-	"yJQzCf05m7PFYjFnmNJfI8PffeH5HtHMDU/P9xhOwJt65TrP92QQQ4KtwBHOqPKmXoSpBL0+oxQvKXhT",
-	"JTLwPbVO9X6pBGEr7/7ebzIC3Bk52wxxwpMEIwnaAgpCRIlUiEfICIQERCCABSCR4siRQpHgSa5zRpXR",
-	"+D0O4s1NiEiE3ZdaVx9xgTSz68w8Ltjoh7IixHKNJMUyBtlHH7iYM7jD2gl+VQotwCLgGVNivUAyW1pa",
-	"PLJP4E4Bk4QzubBcpoVjHAVn9L+UKweOnFs3Z/8Tg/YukZUIIZL9pFAmIUSMOwVuCaVoCblsoTGJNbmN",
-	"DyKtZTcXIrgBhoiReW3iCu5SSgKi6LoMsUwSttJL5mxhhV6UAvVNYDkLeVMTVf62Ti3BV7dFLQD3Cq/o",
-	"d4grp2clk/7/o2oFysaN3uUiBmEWPiHMXHi1+GPfGNMQpDlZakUACVCZYCbSnuD9x3udKhDbXr8ALIIY",
-	"BYIoEAQbH55wpjBhEnEG2lUJF4BkfaG/4SZISMApZ7KPTAhsLDchMGcqSymgwNLXGYIZ4ikIrLjwixgp",
-	"A0e7syrEDaaZDobLGIp9KMBszpZ68Tp3csQp5beagbWKND7+gU7zPT/QJ8BGgsf8+zFnP3rFv8qfj/in",
-	"aelwZWqhKaNPWAUxSIcwziJB7hH9lTFCq1xoAdcL+6mZFpEIrjNMdQ7tIGdprVQXrZUArBNAxZi10ctp",
-	"weIBtLholNPSIqxLLhM2UblTttqLdupIQcqdClZodelY0tpUsKRtaTEXFC20Qg4SMa7y4GiRzdFyQdEu",
-	"l6bUFReOljP+blpd9v+hM/Ky2FUrFnqTxjtNoELHAar7xJe/QaC2a8mc5Vvd+tZ6gqrlJJMNDUrPqcQk",
-	"CWHOuuuHBtm//AmuGwDdf//fr4oSclmaRbcQmjAWqyzRnXKhoAOrTVmNENeLCgDyJMUC5JwFMQTfCn9Y",
-	"D/LO5O/nEpm00phrfZwzkEhmacqFQklGFdEQngPxphWNADn/wpRztmnLllJs5CMqBoEW7y8W2reLLxfb",
-	"Bias0cAX/peLV/Uy7Yyc54iujFj6eRhoBjLFpqvR7RwDCLUaS0AyE4JnLHRhQ9iKArrOuALZn7Pdelc7",
-	"EhfOtg6hRbJGAc2kArFojBvTDfxUrvppQ5/CA0VlbanDJq50P+KbhsRGQYKSTCqU6LxFERe2Q7XnJWUK",
-	"c0h0Y6BVMosaYq+sraazadKc6PNTRVP0Z8zCP2+kV+FAbSLt7T3t8Z9t6bXp+u4Ozfat3S1aIUgpx6vW",
-	"/sz0Wbv7s1TwG6KlJ2x1bo+vs3C7N/vCyHUGiITAFIkICO1FjKq789PvpsSj8QFMXh++6cHR22VvNA4P",
-	"enjy+rA3GR8ejiajN5PhcJhrkGIVlwo0y+Z7mhEREOZH2VK/iIsE61NvlhG9clPf+3yxOXSc5fQhPAfJ",
-	"MxHABajGA79xkFnhDvcxvgG0BGBIZkEAUkYZpevSINq1xuUqR72arVLB9SZrq1RoeFMEDGvGQzixnm3y",
-	"xKzmAk34c7khl01a0SrS9Gs+waPJm6Nw+bZ3+HoU9SbhwbD39jA87B3haHQwORqFb9689fxOcxbf2ALo",
-	"3fulTUufvcPKOAeHNqMxPasobOYT/qaSLM1UmTDSAMSucKubsEZs04AfswQzJACHeEkBVR42eipnU7Of",
-	"yWd9jmA5ILVu2rBZHtwdUuV9w37iSPNHr7qw5xZ6vpcQ9guwlYq96ahBnj0RoBJ3Dq2bBUNmOlYBCm0m",
-	"KcmK2bKgN158On0kSnREpO8pSFKKFXxutPLnilnzlRaHd+rUZOx8e7eB85VntZFjU8CXK2wiB5xphfMO",
-	"6TQFdnw2Q389QBbFUAgRYeUYMedUE/h7U5rmK/8KQjZmiXvwVGPdTHqjN72D3qjLTPdVWP/aCv0meepo",
-	"seHzbd0aPXC1H3bNWMSbvGXjUBsIL3mmHoBNaXvR+XcBkTf1/m1QjqoHrlwN2mpVcwLnkLsXxY1tzRTP",
-	"80NRa29QHpt24FYNCk57J5RnWy3O0XgMAX4T9F5PgrA3CZbQw8NR1DtaToJgOVkuD4JoHyiQCqtMPsQM",
-	"F3bHHsFoLOW3OrNg3hVmF4WMdZu+A4UJlS66bNeuV3bVhHqsJSAlXjW47JN94Irf0g2I9+RReirvOgiT",
-	"ClNqE4KYqXUq+EqAlF5HxTmLsWwQ8CQTApgyEnUXQpYlxk/AQs3CcDDc7acooxGhFHSURJjYP0KgoPTz",
-	"q6pG9Y1bkmdpiBVckqbaor+VCicpIiwkAVa5VSmWCimSwJ42RrdYIstpKzfGw/GkNxz1Rq8vx8PpwXg6",
-	"Pvrfai7oTT3Na79urWE6e3w2ay0KTbh3Uy8Ux2ezJtS7KUlWan5/2B/+DoLK/STN3yI4WWSHyDglVfqF",
-	"2F8r2jgV7q98jyhIOsFmt71LxbEQeG0CTpAzARG5q1tuwMckkT3CIoGlElmgMgEzdgNMcbEe3IwebdUz",
-	"wZcUEoc/rmBVrVI08cfFK8325v77dgrV/XTM1ohlydIdKAsilRemvj5IVRodjGQKAYlMinEzu1yudSdO",
-	"tHESYMp8X+m9S4VDo9Z2uByjWPffvaL/hruUYmYZ5OxsG0Yk4kFg4KlW6rTVNtCRMwZBPsMIscJLLMEg",
-	"QYh4ppoAxiBpY5U9Nm+cyyJrGsSizXaTnVzSdgnRnM0USvAarc1MKMqEmXGRSsKQCIVQcHIYVJZbQXZX",
-	"2+2z88fLy7Mc+AIegmsgu0zpeBCmYAXCpAdRtNE2MuZC+ZtelFmSYLHeII003T6aKb0ro6GdXMeYrdzb",
-	"6YpQireL6JuXwZAqo06aiZRLMKhCeYAp+ZuNQzSLDEfzVoHcALOvkozVzfB97hmEmi4pZt/mnm8tUyQA",
-	"kjGmFGEqzTDQVIww98r2YcN80RU8OAi4CE2B4mj2/vIDOv9wgg7eHh2irwdXjbG1ZTwiEbCAZwKvILRb",
-	"9DrNyMko52zDISEPsiJDq8cIQ/pP0F/17fvqj5effnmFbmNg9VBE5TgtAQMbbsafCpDAlD9nREk3brYn",
-	"zywpBqkblt4srrFSqZwOBnkIVmzYD3jSmQQbbaPLiAJ1tntBnTYQZIKo9YWuEBYyOc5UPG65dqLPf5kO",
-	"s9PjTMVojG6Jio0VA0p0xxQIMI7DVKKI8ludSPp/e8/FrDkpl+gvZcBTy1lwClNbWsrOVnhT73Q8+3SB",
-	"yjOIQOec6h6jskM7ubL43Hy063Rc8m/AvghaMfM3WAeU42995wFt44EATBM54AIz7QfFA04HujiRsBdY",
-	"QB0YWrWKZi1m5ntwp0AwTN/xoAGNTnvnx5/RqRYYzZgCEeEA0EW1oHi66mo5L39+ZyHZHgHN3D5QZkRn",
-	"55PnEKKPWBUbcsVub2/7AsIYKxM220XvbGZi3xpqViviqHo68HyPkgCY7ZAd1+MUBzGgsWmdthlj87jP",
-	"xWrg9srBL7OT958v3vfG/WE/VgmtQKnXKYQOOc/f7nl8z/UM3tQ76A/7B7qDwio2Vm9sUKpUB7rZuKn0",
-	"VytQ2+46N1NwC0DFq4G8j9NmLHq5oviXUyYJ4oYEYLPcvkAinM1Cb+r9F6hjSov2TuetvYBlRBkPh7nD",
-	"gSnbC6bUhcfgN2n72HLq/OiOT9qQ3bgGUZ0n86XCpvFptECuvVbx3vcmO+V2qPYfT5Z/o0VsUOFnHOaH",
-	"GSvX6HnI9YVpoOCC/A1CK9jB8xDsAxdLEoZg3Pj6ubjRAKRuxnUmgUAgBBf9Wtkyx6G8YH2tlgMcJoQ1",
-	"VogrfVxyrZnNxVoq67qKV1KTS0Bh3Td7V5pnN6bcjB4OK3kuJYRx0Y4pRcea4N+4aD31bsHMJ032WQPN",
-	"C3a8YMc/MnZsJ+7TEKRh2vswJGma6ckWeDhrYubXbqd/bfZOuWSw8/b6vf+Y/fWL34+jET1ts7m8oN39",
-	"JMjcayzX9uJnayD3kG6tMxxeUPcFdf8xUNdvmww0wHFjuFcQuRFer+59L+WyAWBPzD1ciTBicLvjJWsd",
-	"We2uhrR2t4dAqp95uP7dmq/Wd6n1mZASGdxvAdrojxTD4lgHbgXGXOGOl2wvWPXPglWT4dvnIdUJZxEl",
-	"9r3MPy2A7gBLi1EtN0e6AfMp7ezge+P9mnsLvxQUNN1I0N/LnTdd6iBsdzSD8MMa3ObbQG294Q6gs8p1",
-	"At0LoDwIUCbPQ6rL8g0ohO03KxhXKOIZC/v/qshjE/PRyON3H4VDd32p45L4PsfhPxgs/q59V+28WLFZ",
-	"Kzy9nBpfgPMFOJ/dmbctX/c69maNWJpS81Mw8wMDIpX7zcheOPrFXB38o6H0mR2i//5g7m5svhyiX6D7",
-	"mUP3ZDR+HtKfCSh/52lvZlsBx+PnEo3uh3r2UihTRK3/ZY8Ntq48fmDxAJEsZ6ORLVTlPafpYGCuV8Zc",
-	"qunRcGhvXzve3dfAd7yc2/7VaVWB+6v7/wsAAP//WWRMZERKAAA=",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
