@@ -22,7 +22,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	pluginsv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/plugins/v1alpha1"
 	hwmgmtv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
 	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
 	"github.com/openshift-kni/oran-o2ims/internal/constants"
@@ -71,7 +70,7 @@ type timeouts struct {
 	clusterConfiguration time.Duration
 }
 
-// Hardware plugin client retry configuration constants
+// Hardware manager client retry configuration constants
 const (
 	timedOutMessage = "timed out"
 )
@@ -86,8 +85,8 @@ func GetClusterTemplateRefName(name, version string) string {
 //+kubebuilder:rbac:groups=clcm.openshift.io,resources=clustertemplates,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=clcm.openshift.io,resources=hardwareprofiles,verbs=get;list;watch
 //+kubebuilder:rbac:groups=siteconfig.open-cluster-management.io,resources=clusterinstances,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=plugins.clcm.openshift.io,resources=nodeallocationrequests,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=plugins.clcm.openshift.io,resources=nodeallocationrequests/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=clcm.openshift.io,resources=nodeallocationrequests,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=clcm.openshift.io,resources=nodeallocationrequests/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=clcm.openshift.io,resources=nodes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=clcm.openshift.io,resources=nodes/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;create;update;patch;watch
@@ -207,7 +206,8 @@ func (t *provisioningRequestReconcilerTask) executeProvisioningPhases(ctx contex
 
 	// Phase 2: Hardware provisioning
 	result, err = t.executeHardwareProvisioningPhase(ctx, unstructuredClusterInstance)
-	if err != nil || result.Requeue || result.RequeueAfter > 0 {
+	if err != nil || result.Requeue || result.RequeueAfter > 0 ||
+		t.object.Status.ProvisioningStatus.ProvisioningPhase == provisioningv1alpha1.StateFailed {
 		return nil, result, err
 	}
 
@@ -462,7 +462,7 @@ func (t *provisioningRequestReconcilerTask) shouldStopReconciliation() bool {
 }
 
 // checkHardwareProvisioningTimeout checks for hardware provisioning timeout.
-// Timeout detection is handled by the Metal3 plugin, so this function only checks terminal states.
+// Timeout detection is handled by the hardware manager, so this function only checks terminal states.
 //
 //nolint:unparam // Kept for API compatibility, always returns empty Result
 func (t *provisioningRequestReconcilerTask) checkHardwareProvisioningTimeout() ctrl.Result {
@@ -544,21 +544,20 @@ func (t *provisioningRequestReconcilerTask) handlePreProvisioning(ctx context.Co
 }
 
 // handleNodeAllocationRequestProvisioning handles the rendering, creation, and provisioning of the NodeAllocationRequest.
-// It first renders the hardware template for the NodeAllocationRequest based on the provided ClusterInstance,
+// It first builds the NodeAllocationRequest based on the provided ClusterInstance,
 // then creates or updates the NodeAllocationRequest resource, and finally waits for the NodeAllocationRequest to be provisioned.
 // The function returns a ctrl.Result to indicate if/when to requeue, the rendered NodeAllocationRequest, a bool
 // to indicate whether to process with further processing and an error if any issues occur.
 func (t *provisioningRequestReconcilerTask) handleNodeAllocationRequestProvisioning(ctx context.Context,
 	renderedClusterInstance *unstructured.Unstructured) (ctrl.Result, bool, error) {
 
-	// Render the hardware template for NodeAllocationRequest
-	renderedNodeAllocationRequest, err := t.renderHardwareTemplate(ctx, renderedClusterInstance)
+	// Build the NodeAllocationRequest
+	renderedNodeAllocationRequest, err := t.renderNodeAllocationRequest(ctx, renderedClusterInstance)
 	if err != nil {
 		if ctlrutils.IsInputError(err) {
-			res, err := t.checkClusterDeployConfigState(ctx)
-			return res, false, err
+			return doNotRequeue(), false, nil
 		}
-		t.logger.ErrorContext(ctx, "Hardware template rendering error", slog.String("error", err.Error()))
+		t.logger.ErrorContext(ctx, "NodeAllocationRequest build error", slog.String("error", err.Error()))
 		return doNotRequeue(), false, err
 	}
 
@@ -804,7 +803,7 @@ func (t *provisioningRequestReconcilerTask) checkProvisioningConditionsForFailur
 		provisioningv1alpha1.PRconditionTypes.Validated,
 		provisioningv1alpha1.PRconditionTypes.ClusterInstanceRendered,
 		provisioningv1alpha1.PRconditionTypes.ClusterResourcesCreated,
-		provisioningv1alpha1.PRconditionTypes.HardwareTemplateRendered,
+		provisioningv1alpha1.PRconditionTypes.NodeAllocationRequestRendered,
 		provisioningv1alpha1.PRconditionTypes.HardwareProvisioned,
 		provisioningv1alpha1.PRconditionTypes.HardwareConfigured,
 	}
@@ -1007,33 +1006,33 @@ func (t *provisioningRequestReconcilerTask) handleClusterResources(ctx context.C
 	return err
 }
 
-func (t *provisioningRequestReconcilerTask) renderHardwareTemplate(ctx context.Context,
-	clusterInstance *unstructured.Unstructured) (*pluginsv1alpha1.NodeAllocationRequest, error) {
-	renderedNodeAllocationRequest, err := t.handleRenderHardwareTemplate(ctx, clusterInstance)
+func (t *provisioningRequestReconcilerTask) renderNodeAllocationRequest(ctx context.Context,
+	clusterInstance *unstructured.Unstructured) (*hwmgmtv1alpha1.NodeAllocationRequest, error) {
+	renderedNodeAllocationRequest, err := t.buildNodeAllocationRequest(ctx, clusterInstance)
 	if err != nil {
-		hardwareTemplateFailureMsg := "Failed to render the Hardware template"
-		hardwareTemplateFailureMsgWithError := hardwareTemplateFailureMsg + ": " + err.Error()
-		ctlrutils.LogError(ctx, t.logger, hardwareTemplateFailureMsg, err, slog.String("name", t.object.Name))
+		narRenderFailureMsg := "Failed to build the NodeAllocationRequest"
+		narRenderFailureMsgWithError := narRenderFailureMsg + ": " + err.Error()
+		ctlrutils.LogError(ctx, t.logger, narRenderFailureMsg, err, slog.String("name", t.object.Name))
 		ctlrutils.SetStatusCondition(&t.object.Status.Conditions,
-			provisioningv1alpha1.PRconditionTypes.HardwareTemplateRendered,
+			provisioningv1alpha1.PRconditionTypes.NodeAllocationRequestRendered,
 			provisioningv1alpha1.CRconditionReasons.Failed,
 			metav1.ConditionFalse,
-			hardwareTemplateFailureMsgWithError,
+			narRenderFailureMsgWithError,
 		)
-		// Update provisioning status to failed to ensure consistency with the HardwareTemplateRendered condition Failed status
-		ctlrutils.SetProvisioningStateFailed(t.object, hardwareTemplateFailureMsgWithError)
+		// Update provisioning status to failed to ensure consistency with the NodeAllocationRequestRendered condition Failed status
+		ctlrutils.SetProvisioningStateFailed(t.object, narRenderFailureMsgWithError)
 	} else {
 		t.logger.InfoContext(
 			ctx,
-			"Successfully rendered Hardware template for NodeAllocationRequest",
+			"Successfully built NodeAllocationRequest",
 			slog.String("name", t.object.Name),
 		)
 
 		ctlrutils.SetStatusCondition(&t.object.Status.Conditions,
-			provisioningv1alpha1.PRconditionTypes.HardwareTemplateRendered,
+			provisioningv1alpha1.PRconditionTypes.NodeAllocationRequestRendered,
 			provisioningv1alpha1.CRconditionReasons.Completed,
 			metav1.ConditionTrue,
-			"Rendered Hardware template successfully",
+			"Built NodeAllocationRequest successfully",
 		)
 	}
 
@@ -1129,7 +1128,7 @@ func (r *ProvisioningRequestReconciler) handleProvisioningRequestDeletion(
 	// Delete the NodeAllocationRequest CR first.
 	// The NAR name matches the ProvisioningRequest name (1:1 relationship).
 	narNS := ctlrutils.GetEnvOrDefault(constants.DefaultNamespaceEnvName, constants.DefaultNamespace)
-	nar := &pluginsv1alpha1.NodeAllocationRequest{}
+	nar := &hwmgmtv1alpha1.NodeAllocationRequest{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: provisioningRequest.Name, Namespace: narNS}, nar); err != nil {
 		if !k8serrors.IsNotFound(err) {
 			return false, fmt.Errorf("failed to get NodeAllocationRequest %s: %w", provisioningRequest.Name, err)
@@ -1315,10 +1314,10 @@ func (t *provisioningRequestReconcilerTask) finalizeProvisioningIfComplete(ctx c
 			return err
 		}
 
-		// Signal to the hardware plugin that the cluster is fully provisioned.
-		// This allows the plugin to perform post-provisioning steps such as
+		// Signal to the hardware manager that the cluster is fully provisioned.
+		// This allows it to perform post-provisioning steps such as
 		// enabling BMO management of IBI-provisioned nodes.
-		// Done after persisting FULFILLED state so a transient plugin failure
+		// Done after persisting FULFILLED state so a transient failure
 		// does not block fulfillment. Returns error to trigger retry via requeue.
 		if !t.isHardwareProvisionSkipped() {
 			if err := t.setNARClusterProvisioned(ctx); err != nil {
@@ -1336,7 +1335,7 @@ func (t *provisioningRequestReconcilerTask) finalizeProvisioningIfComplete(ctx c
 // getNodeAllocationRequestResponse retrieves the NodeAllocationRequest CR by PR name.
 // It returns the NodeAllocationRequest, a boolean indicating whether it exists,
 // and any error encountered.
-func (t *provisioningRequestReconcilerTask) getNodeAllocationRequestResponse(ctx context.Context) (*pluginsv1alpha1.NodeAllocationRequest, bool, error) {
+func (t *provisioningRequestReconcilerTask) getNodeAllocationRequestResponse(ctx context.Context) (*hwmgmtv1alpha1.NodeAllocationRequest, bool, error) {
 	nar, err := t.getNAR(ctx)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -1349,13 +1348,13 @@ func (t *provisioningRequestReconcilerTask) getNodeAllocationRequestResponse(ctx
 }
 
 func (t *provisioningRequestReconcilerTask) resetHardwareTimers() {
-	// Hardware timers are no longer tracked in O-Cloud Manager - timeout handling moved to Metal3 plugin
+	// Hardware timers are no longer tracked in O-Cloud Manager - timeout handling moved to Hardware Manager
 	// This function is kept for compatibility but no longer resets any timers
 }
 
 //nolint:unparam // Kept for API compatibility, always returns nil
 func (t *provisioningRequestReconcilerTask) resetHardwareTimersAndPersist() error {
-	// Hardware timers are no longer tracked in O-Cloud Manager - timeout handling moved to Metal3 plugin
+	// Hardware timers are no longer tracked in O-Cloud Manager - timeout handling moved to Hardware Manager
 	// This function is kept for compatibility but no longer performs any operations
 	t.resetHardwareTimers()
 	return nil

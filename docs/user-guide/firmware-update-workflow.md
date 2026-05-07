@@ -28,17 +28,17 @@ SPDX-License-Identifier: Apache-2.0
 ## Overview
 
 The O-Cloud Manager coordinates firmware and BIOS updates on bare-metal hosts through
-the Metal3 hardware plugin. Firmware updates can occur in two contexts:
+the hardware manager. Firmware updates can occur in two contexts:
 
 - **Day-0 (initial provisioning):** When a cluster is first
-  [provisioned](./cluster-provisioning.md) via a ProvisioningRequest, the hardware plugin
+  [provisioned](./cluster-provisioning.md) via a ProvisioningRequest, the hardware manager
   applies the firmware and BIOS settings defined in the HardwareProfile before cluster
   installation begins.
 - **Day-2 (post-provisioning update):** After a cluster is running, firmware and BIOS
   settings can be updated by changing the HardwareProfile referenced in the
   ProvisioningRequest.
 
-Both flows use the same underlying mechanism: the hardware plugin translates
+Both flows use the same underlying mechanism: the hardware manager translates
 HardwareProfile settings into Metal3 `HostFirmwareSettings` and
 `HostFirmwareComponents` CRs, which the Metal3 Bare Metal Operator (BMO) applies to
 the host.
@@ -97,14 +97,14 @@ When a ProvisioningRequest is created, the following sequence occurs:
    for each node group (from the ProvisioningRequest override or hwMgmtDefaults
    default) and creates a `NodeAllocationRequest` CR.
 
-2. **BMH selection** — The Metal3 hardware plugin selects available BareMetalHosts
-   matching the [resource selector criteria](./template-overview.md#hardwaretemplate)
+2. **BMH selection** — The hardware manager selects available BareMetalHosts
+   matching the [resource selector criteria](./template-overview.md#hwmgmtdefaults)
    (labels and hardware data).
 
-3. **AllocatedNode creation** — For each selected BMH, the plugin creates an
+3. **AllocatedNode creation** — For each selected BMH, the hardware manager creates an
    `AllocatedNode` CR referencing the target HardwareProfile.
 
-4. **Firmware diff computation** — The plugin compares the HardwareProfile's desired
+4. **Firmware diff computation** — The hardware manager compares the HardwareProfile's desired
    state against the host's current state:
    - **BIOS settings:** Compares `spec.bios.attributes` against the host's
      `HostFirmwareSettings` status. If any setting differs, BIOS update is needed.
@@ -112,7 +112,7 @@ When a ProvisioningRequest is created, the following sequence occurs:
      `spec.bmcFirmware.version`, and `spec.nicFirmware[].version` against the host's
      `HostFirmwareComponents` status. If any version differs, firmware update is needed.
 
-5. **Metal3 CR updates** — If updates are needed, the plugin:
+5. **Metal3 CR updates** — If updates are needed, the hardware manager:
    - Updates the `HostFirmwareSettings` CR with the desired BIOS attributes.
    - Updates the `HostFirmwareComponents` CR with the firmware versions and download
      URLs.
@@ -120,7 +120,7 @@ When a ProvisioningRequest is created, the following sequence occurs:
 6. **Firmware application** — The Metal3 Bare Metal Operator detects the changes,
    downloads the firmware, applies the updates, and reboots the host as needed.
 
-7. **Validation** — After the host comes back, the plugin validates that the firmware
+7. **Validation** — After the host comes back, the hardware manager validates that the firmware
    versions and BIOS settings match the desired state.
 
 8. **Completion** — Once all nodes pass validation, hardware provisioning is marked
@@ -142,7 +142,7 @@ ProvisioningRequest
 
 NodeAllocationRequest (created by O-Cloud Manager)
   └─ contains node groups with hwProfile references
-       └─ AllocatedNode (created by Metal3 plugin, one per host)
+       └─ AllocatedNode (created by hardware manager, one per host)
             ├─ spec.hwProfile → HardwareProfile CR
             ├─ maps to BareMetalHost
             │    ├─ HostFirmwareSettings (BIOS attributes)
@@ -162,15 +162,15 @@ Key conditions during Day-0 firmware provisioning:
 
 | Condition | Status | Reason | Meaning |
 |---|---|---|---|
-| `HardwareTemplateRendered` | True | Completed | Hardware template validated and NodeAllocationRequest created |
+| `NodeAllocationRequestRendered` | True | Completed | NodeAllocationRequest rendered and validated |
 | `HardwareProvisioned` | False | InProgress | BMH selection and allocation in progress |
 | `HardwareProvisioned` | True | Completed | All nodes allocated |
 
 To monitor individual node status, check the AllocatedNode CRs:
 
 ```console
-oc get allocatednodes.plugins.clcm.openshift.io -A
-oc get allocatednodes.plugins.clcm.openshift.io <name> -n <namespace> -o yaml
+oc get allocatednodes.clcm.openshift.io -A
+oc get allocatednodes.clcm.openshift.io <name> -n <namespace> -o yaml
 ```
 
 To check the Metal3 CRs directly:
@@ -211,7 +211,7 @@ oc patch provisioningrequests.clcm.openshift.io <name> --type merge \
 ```
 
 The O-Cloud Manager detects the change and propagates it through the
-NodeAllocationRequest to the Metal3 hardware plugin. For a step-by-step walkthrough
+NodeAllocationRequest to the hardware manager. For a step-by-step walkthrough
 with example status output, see
 [Switching to a new hardware profile](./cluster-configuration.md#switching-to-a-new-hardware-profile).
 
@@ -230,15 +230,15 @@ The Day-2 flow differs from Day-0 in several important ways:
    the default is 1 (serial update).
 
 3. **Cordon and drain** — Before applying firmware to a node on a multi-node cluster,
-   the plugin cordons the Kubernetes node and drains its workloads to ensure pods are
+   the hardware manager cordons the Kubernetes node and drains its workloads to ensure pods are
    safely evicted before the  host reboots. On **single-node (SNO) clusters**, cordon and
    drain are skipped since there is no other node to receive the evicted workloads.
 
-4. **Host reboot** — The plugin creates a `HostUpdatePolicy` CR and adds a
+4. **Host reboot** — The hardware manager creates a `HostUpdatePolicy` CR and adds a
    `reboot.metal3.io` annotation to the BMH to trigger a controlled reboot after firmware
    is staged.
 
-5. **Node readiness and uncordon** — After reboot, the plugin waits for the Kubernetes
+5. **Node readiness and uncordon** — After reboot, the hardware manager waits for the Kubernetes
    node to rejoin the cluster and reach Ready state. On multi-node clusters, the node is
    then uncordoned to allow workloads to be scheduled back. This frees a slot in the
    rolling concurrency window so the next node can begin its update.
@@ -250,7 +250,7 @@ For each node selected for hardware update:
 1. **Pending marking** — When a profile change is detected, all nodes whose current
    profile does not match the target are marked `ConfigurationUpdatePending`.
 
-2. **Diff computation** — The plugin compares the new HardwareProfile against the host's
+2. **Diff computation** — The hardware manager compares the new HardwareProfile against the host's
    current firmware/BIOS state (same as Day-0). Nodes whose firmware already matches the
    target profile are marked `ConfigurationApplied` without further action.
 
@@ -265,13 +265,13 @@ For each node selected for hardware update:
    (via `ChangeDetected` and `Valid` status conditions on the Metal3 CRs).
 
 6. **Reboot trigger** — Adds the `reboot.metal3.io` annotation to the BMH, causing
-   BMO to apply the firmware updates and reboot the host. The plugin monitors the BMH
+   BMO to apply the firmware updates and reboot the host. The hardware manager monitors the BMH
    status for completion.
 
 7. **Post-reboot validation** — Validates that firmware versions and BIOS settings match
    the new profile.
 
-8. **Completion** — The plugin waits for the Kubernetes node to rejoin the cluster and
+8. **Completion** — The hardware manager waits for the Kubernetes node to rejoin the cluster and
    reach Ready state. On multi-node clusters the node is then uncordoned so workloads
    can be scheduled back, freeing a slot for the next node. The node is marked
    `ConfigurationApplied` and `status.hwProfile` is set to the new profile.
@@ -294,13 +294,13 @@ oc get provisioningrequests.clcm.openshift.io <name> -o jsonpath='{.status.condi
 For SNO clusters, the Configured condition message includes the AllocatedNode name:
 
 ```text
-Configuration update in progress (AllocatedNode metal3-hwplugin-sno1-dell-xr8620t-pool-dell-xr8620t-node1)
+Configuration update in progress (AllocatedNode sno1-dell-xr8620t-pool-dell-xr8620t-node1)
 ```
 
 On failure, the message includes the failed node and error details:
 
 ```text
-Configuration update failed (AllocatedNode metal3-hwplugin-sno1-dell-xr8620t-pool-dell-xr8620t-node1: BMH Servicing Error)
+Configuration update failed (AllocatedNode sno1-dell-xr8620t-pool-dell-xr8620t-node1: BMH Servicing Error)
 ```
 
 For multi-node clusters, the message reports per-group progress:
@@ -319,13 +319,13 @@ Configuration update failed (group master: 3/3 completed, group worker: 1/2 fail
 The NodeAllocationRequest `Configured` condition provides more detail:
 
 ```console
-oc get nodeallocationrequests.plugins.clcm.openshift.io -A -o yaml
+oc get nodeallocationrequests.clcm.openshift.io -A -o yaml
 ```
 
 Individual AllocatedNode CRs show per-node status:
 
 ```console
-oc get allocatednodes.plugins.clcm.openshift.io -A -o json | \
+oc get allocatednodes.clcm.openshift.io -A -o json | \
   jq -r '["NAME","CURRENTPROFILE","REASON","DETAILS"],
          (.items[] | [.metadata.name, .status.hwProfile,
            (.status.conditions[]? | select(.type=="Configured") | .reason),
@@ -354,7 +354,7 @@ oc get hostfirmwaresettings.metal3.io <bmh-name> -n <bmh-namespace> \
 
 | Condition | Context | Description |
 |---|---|---|
-| `HardwareTemplateRendered` | Day-0 | Hardware template validated and NodeAllocationRequest created |
+| `NodeAllocationRequestRendered` | Day-0 | NodeAllocationRequest rendered and validated |
 | `HardwareProvisioned` | Day-0 | BMH allocation and initial provisioning status |
 | `HardwareNodeConfigApplied` | Day-0 | Node configuration (BMC, MAC addresses) applied to ClusterInstance |
 | `HardwareConfigured` | Day-2 | Firmware/BIOS configuration status |
@@ -451,7 +451,7 @@ When a timeout occurs:
 If the Metal3 Bare Metal Operator fails to apply firmware:
 
 - The BMH enters an error state (`OperationalStatus=error`).
-- The plugin tolerates transient errors for up to 5 minutes.
+- The hardware manager tolerates transient errors for up to 5 minutes.
 - If the error persists, the AllocatedNode `Configured` condition is set to
   `Status=False, Reason=Failed` with an error message.
 - The failure propagates up to the NodeAllocationRequest and ProvisioningRequest.

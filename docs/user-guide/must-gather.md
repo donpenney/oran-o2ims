@@ -10,9 +10,8 @@ The following data is collected:
 
 - O-Cloud Manager custom resources (from all namespaces)
   - `clcm.openshift.io`: ClusterTemplates, ProvisioningRequests,
-    HardwareProfiles
+    HardwareProfiles, NodeAllocationRequests, AllocatedNodes
   - `ocloud.openshift.io`: Inventories
-  - `plugins.clcm.openshift.io`: NodeAllocationRequests, AllocatedNodes
 - Metal3 resources (from all namespaces)
   - BareMetalHosts
   - HostFirmwareSettings
@@ -23,7 +22,7 @@ The following data is collected:
 - Pod logs
   - All O-Cloud Manager pods (controller manager, resource-server,
     cluster-server, alarms-server, artifacts-server, provisioning-server,
-    postgres-server, metal3-hardwareplugin-server)
+    postgres-server, hardwaremanager-server)
   - Metal3 pods in `openshift-machine-api` (metal3-baremetal-operator, metal3)
   - Both current and previous container logs are collected
 
@@ -98,9 +97,8 @@ Key locations within the output:
 
 | Path | Contents |
 |---|---|
-| `clcm/` | O-Cloud Manager CRs (ClusterTemplates, ProvisioningRequests, etc.) |
+| `clcm/` | O-Cloud Manager CRs (ClusterTemplates, ProvisioningRequests, NodeAllocationRequests, AllocatedNodes, etc.) |
 | `ocloud/` | Inventory CRs |
-| `plugins/` | NodeAllocationRequests, AllocatedNodes |
 | `metal3/` | BareMetalHosts, HostFirmwareSettings, HostFirmwareComponents, HardwareData |
 | `metal3/preprovisioning-secrets/` | Secrets referenced by BMH preprovisioningNetworkDataName |
 | `logs/ocloud-manager/` | Pod logs from O-Cloud Manager namespace |

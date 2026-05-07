@@ -30,7 +30,7 @@ the failed phase. Common failure conditions:
 | Condition | Phase | Common Causes |
 |---|---|---|
 | `ProvisioningRequestValidated` | Validation | Invalid template parameters, missing ConfigMaps |
-| `HardwareTemplateRendered` | Hardware template | Missing HardwareTemplate or HardwareProfile CR |
+| `NodeAllocationRequestRendered` | NodeAllocationRequest rendering | Invalid hwMgmtDefaults or HardwareProfile CR |
 | `HardwareProvisioned` | BMH allocation | No available BMHs matching resource selector |
 | `HardwareConfigured` | Firmware/BIOS | Firmware URL unreachable, BMC errors |
 | `ClusterProvisioned` | Cluster install | Installation timeout, network issues |
@@ -44,12 +44,12 @@ Find the controller manager pod and view logs:
 oc logs -n oran-o2ims -l app=o-cloud-manager --tail=100
 ```
 
-The controller manager and Metal3 hardware plugin logs are the most common to check.
+The controller manager and hardware manager logs are the most common to check.
 Other server logs may be useful depending on the issue:
 
 ```console
-# Metal3 hardware manager
-oc logs -n oran-o2ims -l app=metal3-hardwareplugin-server --tail=100
+# Hardware manager
+oc logs -n oran-o2ims -l app=hardwaremanager-server --tail=100
 
 # Resource server
 oc logs -n oran-o2ims -l app=resource-server --tail=100
@@ -82,10 +82,10 @@ If `HardwareProvisioned` shows `Failed` with a message about no available resour
    oc get baremetalhosts -A --show-labels
    ```
 
-2. Verify the resource selector in the HardwareTemplate matches the BMH labels:
+2. Verify the resource selector in the ClusterTemplate hwMgmtDefaults matches the BMH labels:
 
    ```console
-   oc get hardwaretemplates.clcm.openshift.io <name> -n <namespace> -o yaml
+   oc get clustertemplates.clcm.openshift.io <name> -n <namespace> -o jsonpath='{.spec.templateDefaults.hwMgmtDefaults}'
    ```
 
 3. Check that BMHs are not already allocated:
@@ -152,7 +152,7 @@ If `HardwareConfigured` shows `Failed` or `TimedOut`:
 1. Check the AllocatedNode status for the specific node that failed:
 
    ```console
-   oc get allocatednodes.plugins.clcm.openshift.io -A \
+   oc get allocatednodes.clcm.openshift.io -A \
      -o custom-columns=NAME:.metadata.name,CONFIGURED:.status.conditions[*].reason,MSG:.status.conditions[*].message
    ```
 

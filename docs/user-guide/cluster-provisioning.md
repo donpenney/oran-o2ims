@@ -54,7 +54,7 @@ The status of the provisioning process is tracked via the following `status.cond
 - ProvisioningRequestValidated: The ProvisioningRequest has been validated.
 - ClusterInstanceRendered: The ClusterInstance has been successfully rendered and validated.
 - ClusterResourcesCreated: The necessary cluster resources have been created.
-- HardwareTemplateRendered: The hardware template has been successfully rendered.
+- NodeAllocationRequestRendered: The NodeAllocationRequest has been successfully rendered.
 - HardwareProvisioned: Hardware provisioning is complete.
 - HardwareConfigured: Firmware and BIOS configuration has been applied. See [Firmware Update Workflow](./firmware-update-workflow.md) for details.
 - HardwareNodeConfigApplied: Hardware node configuration is applied to the rendered ClusterInstance.
@@ -82,7 +82,7 @@ The O-Cloud Manager orchestrates the cluster provisioning process, which is init
 **The general success workflow**:
 
 - `status.conditions`:
-ProvisioningRequestValidated -> ClusterInstanceRendered -> ClusterResourcesCreated -> HardwareTemplateRendered -> HardwareProvisioned -> HardwareNodeConfigApplied -> ClusterProvisioned -> ConfigurationApplied
+ProvisioningRequestValidated -> ClusterInstanceRendered -> ClusterResourcesCreated -> NodeAllocationRequestRendered -> HardwareProvisioned -> HardwareNodeConfigApplied -> ClusterProvisioned -> ConfigurationApplied
 - `status.provisioningStatus`:
 Pending (Validating and preparing resources)
 -> Progressing (Hardware provisioning is in progress)
@@ -124,10 +124,10 @@ Pending (Validating and preparing resources)
         status: "True"
         type: ClusterResourcesCreated
       - lastTransitionTime: "2025-10-01T22:14:26Z"
-        message: Rendered Hardware template successfully
+        message: Rendered NodeAllocationRequest successfully
         reason: Completed
         status: "True"
-        type: HardwareTemplateRendered
+        type: NodeAllocationRequestRendered
       provisioningStatus:
         provisioningDetails: Validating and preparing resources
         provisioningPhase: pending
@@ -135,7 +135,7 @@ Pending (Validating and preparing resources)
     ```
 
 5. Create the NodeAllocationRequest to start hardware provisioning. The `provisioningStatus.provisioningPhase`transitions to progressing.
-The O‑Cloud Metal3 hardware plugin consumes the CR, selects matching BareMetalHosts using the label selectors from the hwMgmtDefaults and merged hwMgmtParameters, and allocates them to the request. For each selected host, the plugin:
+The O‑Cloud hardware manager consumes the CR, selects matching BareMetalHosts using the label selectors from the hwMgmtDefaults and merged hwMgmtParameters, and allocates them to the request. For each selected host, the hardware manager:
    - Creates an `AllocatedNode` CR.
    - Applies the hardware settings by creating/updating the relevant Metal3 CRs (HostFirmwareSettings/HostFirmwareComponents).
    - Reports progress through the statuses of both `NodeAllocationRequest` and `AllocatedNode` resources.
@@ -146,7 +146,7 @@ The O‑Cloud Metal3 hardware plugin consumes the CR, selects matching BareMetal
     status:
       extensions:
         allocatedNodeHostMap:
-          metal3-hwplugin-sno1-dell-xr8620t-pool-dell-xr8620t-node1: sno1.example.com
+          sno1-dell-xr8620t-pool-dell-xr8620t-node1: sno1.example.com
       conditions:
       ...
       - lastTransitionTime: "2025-10-01T22:14:27Z"
@@ -160,7 +160,7 @@ The O‑Cloud Metal3 hardware plugin consumes the CR, selects matching BareMetal
         updateTime: "2025-10-01T22:14:27Z"
     ```
 
-6. Wait for hardware provisioning to complete. Once it completes, the Metal3 hardware manager sends the allocated node information (BMC secret, BMC url, interface MAC addresses, etc.) in the `AllocatedNode` status. O-Cloud Manager retrieves this data and updates the rendered ClusterInstance CR with it.
+6. Wait for hardware provisioning to complete. Once it completes, the hardware manager sends the allocated node information (BMC secret, BMC url, interface MAC addresses, etc.) in the `AllocatedNode` status. O-Cloud Manager retrieves this data and updates the rendered ClusterInstance CR with it.
 
    Example status:
 
@@ -168,7 +168,7 @@ The O‑Cloud Metal3 hardware plugin consumes the CR, selects matching BareMetal
     status:
       extensions:
         allocatedNodeHostMap:
-          metal3-hwplugin-sno1-dell-xr8620t-pool-dell-xr8620t-node1: sno1.example.com
+          sno1-dell-xr8620t-pool-dell-xr8620t-node1: sno1.example.com
       conditions:
       ...
       - lastTransitionTime: "2025-10-01T22:47:16Z"

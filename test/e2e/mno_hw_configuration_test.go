@@ -29,11 +29,10 @@ import (
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	metal3v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
-	pluginsv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/plugins/v1alpha1"
 	hwmgmtv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
 	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
-	metal3pluginscontrollers "github.com/openshift-kni/oran-o2ims/hwmgr-plugins/metal3/controller"
 	"github.com/openshift-kni/oran-o2ims/internal/constants"
+	hwmgrcontrollers "github.com/openshift-kni/oran-o2ims/internal/hardwaremanager/controller"
 	testutils "github.com/openshift-kni/oran-o2ims/test/utils"
 	machineconfigv1 "github.com/openshift/api/machineconfiguration/v1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -64,7 +63,7 @@ var _ = Describe("MNO Day2 Hardware Configuration test", Ordered, Label("mno-day
 		spokeRestore func()
 
 		pr  *provisioningv1alpha1.ProvisioningRequest
-		nar *pluginsv1alpha1.NodeAllocationRequest
+		nar *hwmgmtv1alpha1.NodeAllocationRequest
 	)
 
 	testCtx = context.Background()
@@ -136,7 +135,7 @@ var _ = Describe("MNO Day2 Hardware Configuration test", Ordered, Label("mno-day
 		// Setup
 
 		pr = &provisioningv1alpha1.ProvisioningRequest{}
-		nar = &pluginsv1alpha1.NodeAllocationRequest{}
+		nar = &hwmgmtv1alpha1.NodeAllocationRequest{}
 
 		By("Creating namespaces")
 		for _, ns := range []string{ctNamespace, "ztp-" + ctNamespace, "dell-r740-pool", "dell-xr8620t-pool"} {
@@ -394,7 +393,7 @@ var _ = Describe("MNO Day2 Hardware Configuration test", Ordered, Label("mno-day
 		}
 
 		// Clean up NARs and AllocatedNodes (not cascade-deleted since PR finalizer was stripped)
-		narObj := &pluginsv1alpha1.NodeAllocationRequest{}
+		narObj := &hwmgmtv1alpha1.NodeAllocationRequest{}
 		if err := K8SClient.Get(testCtx, types.NamespacedName{
 			Name: prName, Namespace: constants.DefaultNamespace,
 		}, narObj); err == nil {
@@ -519,8 +518,8 @@ var _ = Describe("MNO Day2 Hardware Configuration test", Ordered, Label("mno-day
 						continue
 					}
 
-					hasBiosAnnotation := bmh.Annotations[metal3pluginscontrollers.BiosUpdateNeededAnnotation] == annotationTrue
-					hasFirmwareAnnotation := bmh.Annotations[metal3pluginscontrollers.FirmwareUpdateNeededAnnotation] == annotationTrue
+					hasBiosAnnotation := bmh.Annotations[hwmgrcontrollers.BiosUpdateNeededAnnotation] == annotationTrue
+					hasFirmwareAnnotation := bmh.Annotations[hwmgrcontrollers.FirmwareUpdateNeededAnnotation] == annotationTrue
 					// For nodes that require BIOS or firmware updates, simulate the BMO BIOS and firmware updates.
 					if (hasBiosAnnotation || hasFirmwareAnnotation) &&
 						bmh.Status.OperationalStatus != metal3v1alpha1.OperationalStatusServicing {
@@ -619,8 +618,8 @@ var _ = Describe("MNO Day2 Hardware Configuration test", Ordered, Label("mno-day
 						continue
 					}
 
-					hasBiosAnnotation := bmh.Annotations[metal3pluginscontrollers.BiosUpdateNeededAnnotation] == annotationTrue
-					hasFirmwareAnnotation := bmh.Annotations[metal3pluginscontrollers.FirmwareUpdateNeededAnnotation] == annotationTrue
+					hasBiosAnnotation := bmh.Annotations[hwmgrcontrollers.BiosUpdateNeededAnnotation] == annotationTrue
+					hasFirmwareAnnotation := bmh.Annotations[hwmgrcontrollers.FirmwareUpdateNeededAnnotation] == annotationTrue
 					if !(hasBiosAnnotation || hasFirmwareAnnotation) ||
 						bmh.Status.OperationalStatus == metal3v1alpha1.OperationalStatusServicing {
 						continue
@@ -766,9 +765,9 @@ var _ = Describe("MNO Day2 Hardware Configuration test", Ordered, Label("mno-day
 
 			// Wait for controller to set config-in-progress annotation on the AllocatedNode
 			Eventually(func() bool {
-				n := &pluginsv1alpha1.AllocatedNode{}
+				n := &hwmgmtv1alpha1.AllocatedNode{}
 				Expect(K8SClient.Get(testCtx, servicingNodeKey, n)).To(Succeed())
-				return n.Annotations[metal3pluginscontrollers.ConfigAnnotation] != ""
+				return n.Annotations[hwmgrcontrollers.ConfigAnnotation] != ""
 			}, timeout, interval).Should(BeTrue(),
 				"Worker should have config-in-progress annotation")
 		})
@@ -808,7 +807,7 @@ var _ = Describe("MNO Day2 Hardware Configuration test", Ordered, Label("mno-day
 				"7 workers should converge to v2 ConfigApplied while Servicing worker defers")
 
 			By("Verifying the Servicing worker is still in ConfigUpdate with v1 profile (deferred abandon)")
-			n := &pluginsv1alpha1.AllocatedNode{}
+			n := &hwmgmtv1alpha1.AllocatedNode{}
 			Expect(K8SClient.Get(testCtx, servicingNodeKey, n)).To(Succeed())
 			Expect(n.Spec.HwProfile).To(Equal(v1Profile),
 				"Servicing worker should still be in v1 profile")
@@ -856,10 +855,10 @@ var _ = Describe("MNO Day2 Hardware Configuration test", Ordered, Label("mno-day
 
 func intPtr(v int) *int { return &v }
 
-func listAllocatedNodesForNAR(ctx context.Context, narName string) *pluginsv1alpha1.AllocatedNodeList {
-	all := &pluginsv1alpha1.AllocatedNodeList{}
+func listAllocatedNodesForNAR(ctx context.Context, narName string) *hwmgmtv1alpha1.AllocatedNodeList {
+	all := &hwmgmtv1alpha1.AllocatedNodeList{}
 	Expect(K8SClient.List(ctx, all, client.InNamespace(constants.DefaultNamespace))).To(Succeed())
-	filtered := &pluginsv1alpha1.AllocatedNodeList{}
+	filtered := &hwmgmtv1alpha1.AllocatedNodeList{}
 	for _, n := range all.Items {
 		if n.Spec.NodeAllocationRequest == narName {
 			filtered.Items = append(filtered.Items, n)
@@ -910,7 +909,7 @@ func setupSpokeClientMock(ctx context.Context, hostnames []string) func() {
 		Build()
 	spokeClientset := kubefake.NewSimpleClientset(k8sNodes...)
 
-	return metal3pluginscontrollers.SetTestSpokeClientCreators(
+	return hwmgrcontrollers.SetTestSpokeClientCreators(
 		func(_ context.Context, _ client.Client, _ string) (client.Client, error) {
 			return spokeClient, nil
 		},
@@ -923,7 +922,7 @@ func setupSpokeClientMock(ctx context.Context, hostnames []string) func() {
 // failBMHDay2 simulates a BMH entering an error state during a day2 hardware configuration update.
 // It transitions the BMH through Servicing and then to Error with an expired transient error timestamp,
 // so the controller immediately treats it as a non-transient failure and marks the AllocatedNode as Failed.
-func failBMHDay2(ctx context.Context, node *pluginsv1alpha1.AllocatedNode, bmh *metal3v1alpha1.BareMetalHost) {
+func failBMHDay2(ctx context.Context, node *hwmgmtv1alpha1.AllocatedNode, bmh *metal3v1alpha1.BareMetalHost) {
 	bmhKey := types.NamespacedName{Name: bmh.Name, Namespace: bmh.Namespace}
 	nodeKey := types.NamespacedName{Name: node.Name, Namespace: node.Namespace}
 
@@ -946,11 +945,11 @@ func failBMHDay2(ctx context.Context, node *pluginsv1alpha1.AllocatedNode, bmh *
 	bmh.Status.OperationalStatus = metal3v1alpha1.OperationalStatusServicing
 	Expect(K8SClient.Status().Update(ctx, bmh)).To(Succeed())
 
-	// Step 3: Wait for hwplugin to set config-in-progress annotation on AllocatedNode
+	// Step 3: Wait for metal3 hwmgr to set config-in-progress annotation on AllocatedNode
 	Eventually(func() bool {
-		n := &pluginsv1alpha1.AllocatedNode{}
+		n := &hwmgmtv1alpha1.AllocatedNode{}
 		Expect(K8SClient.Get(ctx, nodeKey, n)).To(Succeed())
-		return n.Annotations[metal3pluginscontrollers.ConfigAnnotation] != ""
+		return n.Annotations[hwmgrcontrollers.ConfigAnnotation] != ""
 	}, time.Minute*3, time.Second*2).Should(BeTrue(),
 		"AllocatedNode %s should have config annotation", node.Name)
 
@@ -961,7 +960,7 @@ func failBMHDay2(ctx context.Context, node *pluginsv1alpha1.AllocatedNode, bmh *
 	if bmh.Annotations == nil {
 		bmh.Annotations = make(map[string]string)
 	}
-	bmh.Annotations[metal3pluginscontrollers.BmhErrorTimestampAnnotation] = time.Now().Add(-10 * time.Minute).Format(time.RFC3339)
+	bmh.Annotations[hwmgrcontrollers.BmhErrorTimestampAnnotation] = time.Now().Add(-10 * time.Minute).Format(time.RFC3339)
 	Expect(K8SClient.Update(ctx, bmh)).To(Succeed())
 
 	Expect(K8SClient.Get(ctx, bmhKey, bmh)).To(Succeed())
@@ -978,7 +977,7 @@ func failBMHDay2(ctx context.Context, node *pluginsv1alpha1.AllocatedNode, bmh *
 //  3. Wait for controller to set config-in-progress annotation
 //  4. Update HFS/HFC status to match v2 profile values (simulates BIOS and firmware update completion)
 //  5. Transition BMH to OK state (triggers handleNodeInProgressUpdate completion)
-func completeBMHDay2(ctx context.Context, node *pluginsv1alpha1.AllocatedNode, bmh *metal3v1alpha1.BareMetalHost) {
+func completeBMHDay2(ctx context.Context, node *hwmgmtv1alpha1.AllocatedNode, bmh *metal3v1alpha1.BareMetalHost) {
 	bmhKey := types.NamespacedName{Name: bmh.Name, Namespace: bmh.Namespace}
 	nodeKey := types.NamespacedName{Name: node.Name, Namespace: node.Namespace}
 
@@ -1000,11 +999,11 @@ func completeBMHDay2(ctx context.Context, node *pluginsv1alpha1.AllocatedNode, b
 	bmh.Status.OperationalStatus = metal3v1alpha1.OperationalStatusServicing
 	Expect(K8SClient.Status().Update(ctx, bmh)).To(Succeed())
 
-	// Step 3: Wait for hwplugin to set config-in-progress annotation on AllocatedNode
+	// Step 3: Wait for metal3 hwmgr to set config-in-progress annotation on AllocatedNode
 	Eventually(func() bool {
-		n := &pluginsv1alpha1.AllocatedNode{}
+		n := &hwmgmtv1alpha1.AllocatedNode{}
 		Expect(K8SClient.Get(ctx, nodeKey, n)).To(Succeed())
-		return n.Annotations[metal3pluginscontrollers.ConfigAnnotation] != ""
+		return n.Annotations[hwmgrcontrollers.ConfigAnnotation] != ""
 	}, time.Minute*3, time.Second*2).Should(BeTrue(),
 		"AllocatedNode %s should have config annotation", node.Name)
 

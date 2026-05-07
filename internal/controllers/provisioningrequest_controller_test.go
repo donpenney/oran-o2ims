@@ -23,7 +23,7 @@ TEST SUITES:
 1. ProvisioningRequestReconciler Unit Tests
    - Core reconciliation logic and workflow management
    - Validation, rendering, and resource creation processes
-   - Hardware provisioning integration with mocked hardware plugin clients
+   - Hardware provisioning integration with mocked hardware managers
    - Upgrade management via Image Based Upgrades (IBU)
    - Deletion and cleanup workflows
    - Finalizer management
@@ -34,8 +34,8 @@ TEST SUITES:
    - ZTP (Zero Touch Provisioning) policy enforcement
    - Policy template processing and defaults
 
-3. Hardware Plugin Integration Tests (Mock-Based)
-   - Mock hardware plugin client using gomock-generated interfaces
+3. Hardware Manager Integration Tests (Mock-Based)
+   - Mock hardware manager using gomock-generated interfaces
    - Node allocation request processing with controlled responses
    - Hardware error scenarios and retry mechanisms
    - Response structure validation and data processing
@@ -70,8 +70,8 @@ Hardware Integration:
 - Comprehensive timeout management with generation awareness
 - IBU (Image Based Upgrade) workflow testing
 
-Hardware Plugin Integration (Mock-Based):
-- Mock hardware plugin client with gomock-generated interfaces
+Hardware Manager Integration (Mock-Based):
+- Mock hardware manager with gomock-generated interfaces
 - Node allocation request retrieval with controlled responses
 - Hardware error scenarios (timeout, authentication, service unavailable)
 - Retry mechanism testing with retriable vs non-retriable errors
@@ -108,7 +108,7 @@ Status and State Management:
 
 Error Scenarios:
 - Missing dependencies (ClusterTemplate, ConfigMaps, etc.)
-- Hardware plugin communication failures
+- Hardware manager communication failures
 - Resource creation conflicts
 - Validation failures
 - Timeout scenarios (legacy individual checks)
@@ -138,7 +138,7 @@ Integration Scenarios:
 
 Mock and Test Infrastructure:
 - Fake Kubernetes client for API operations (using controller-runtime/client/fake)
-- Mock hardware plugin client (using gomock-generated interfaces)
+- Mock hardware manager (using gomock-generated interfaces)
 - Deterministic test scenarios with controlled mock expectations
 - Test data creation and management
 - Parallel test execution safety
@@ -175,7 +175,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	ibgu "github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/imagebasedgroupupgrades/v1alpha1"
-	pluginsv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/plugins/v1alpha1"
 	hwmgmtv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
 	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
 	"github.com/openshift-kni/oran-o2ims/internal/constants"
@@ -524,10 +523,10 @@ plan:
 					"Cluster resources created successfully")
 
 				utils.SetStatusCondition(&testTask.object.Status.Conditions,
-					provisioningv1alpha1.PRconditionTypes.HardwareTemplateRendered,
+					provisioningv1alpha1.PRconditionTypes.NodeAllocationRequestRendered,
 					provisioningv1alpha1.CRconditionReasons.Completed,
 					metav1.ConditionTrue,
-					"Hardware template rendered successfully")
+					"NodeAllocationRequest rendered successfully")
 			})
 
 			It("should not set provisioning state to failed", func() {
@@ -556,7 +555,7 @@ plan:
 					provisioningv1alpha1.CRconditionReasons.Completed,
 					metav1.ConditionTrue,
 					"ClusterInstance rendered successfully")
-				// Leave ClusterResourcesCreated and HardwareTemplateRendered missing
+				// Leave ClusterResourcesCreated and NodeAllocationRequestRendered missing
 			})
 
 			It("should not set provisioning state to failed when conditions are missing", func() {
@@ -668,9 +667,9 @@ plan:
 			})
 		})
 
-		Context("when hardware template rendering fails", func() {
+		Context("when NodeAllocationRequest rendering fails", func() {
 			BeforeEach(func() {
-				// Set other conditions to true but hardware template rendering to false
+				// Set other conditions to true but NodeAllocationRequest rendering to false
 				utils.SetStatusCondition(&testTask.object.Status.Conditions,
 					provisioningv1alpha1.PRconditionTypes.Validated,
 					provisioningv1alpha1.CRconditionReasons.Completed,
@@ -690,13 +689,13 @@ plan:
 					"Cluster resources created successfully")
 
 				utils.SetStatusCondition(&testTask.object.Status.Conditions,
-					provisioningv1alpha1.PRconditionTypes.HardwareTemplateRendered,
+					provisioningv1alpha1.PRconditionTypes.NodeAllocationRequestRendered,
 					provisioningv1alpha1.CRconditionReasons.Failed,
 					metav1.ConditionFalse,
-					"Failed to render hardware template: invalid hardware profile")
+					"Failed to build NodeAllocationRequest: invalid hardware profile")
 			})
 
-			It("should set provisioning state to failed with hardware template error message", func() {
+			It("should set provisioning state to failed with NodeAllocationRequest error message", func() {
 				err := testTask.checkProvisioningConditionsForFailures(ctx)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -706,7 +705,7 @@ plan:
 				Expect(err).ToNot(HaveOccurred())
 
 				Expect(updatedCR.Status.ProvisioningStatus.ProvisioningPhase).To(Equal(provisioningv1alpha1.StateFailed))
-				Expect(updatedCR.Status.ProvisioningStatus.ProvisioningDetails).To(ContainSubstring("Failed to render hardware template: invalid hardware profile"))
+				Expect(updatedCR.Status.ProvisioningStatus.ProvisioningDetails).To(ContainSubstring("Failed to build NodeAllocationRequest: invalid hardware profile"))
 			})
 		})
 
@@ -726,12 +725,12 @@ plan:
 					metav1.ConditionFalse,
 					"Rendering failed: second error")
 
-				// Set hardware template rendering to false (third in the list)
+				// Set NodeAllocationRequest rendering to false (third in the list)
 				utils.SetStatusCondition(&testTask.object.Status.Conditions,
-					provisioningv1alpha1.PRconditionTypes.HardwareTemplateRendered,
+					provisioningv1alpha1.PRconditionTypes.NodeAllocationRequestRendered,
 					provisioningv1alpha1.CRconditionReasons.Failed,
 					metav1.ConditionFalse,
-					"Hardware template failed: third error")
+					"NodeAllocationRequest build failed: third error")
 			})
 
 			It("should set provisioning state to failed with the first failed condition's message", func() {
@@ -769,10 +768,10 @@ plan:
 					"Resource creation failed")
 
 				utils.SetStatusCondition(&testTask.object.Status.Conditions,
-					provisioningv1alpha1.PRconditionTypes.HardwareTemplateRendered,
+					provisioningv1alpha1.PRconditionTypes.NodeAllocationRequestRendered,
 					provisioningv1alpha1.CRconditionReasons.InProgress,
 					metav1.ConditionUnknown,
-					"Hardware template rendering in progress")
+					"NodeAllocationRequest build in progress")
 			})
 
 			It("should set provisioning state to failed based on the first false condition encountered", func() {
@@ -909,7 +908,7 @@ plan:
 				Logger: reconciler.Logger,
 			}
 
-			// Create a ClusterTemplate to avoid hardware plugin errors
+			// Create a ClusterTemplate to avoid hardware manager errors
 			deletionClusterTemplate := &provisioningv1alpha1.ClusterTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-deletion-template.v1.0.0",
@@ -918,7 +917,7 @@ plan:
 				Spec: provisioningv1alpha1.ClusterTemplateSpec{
 					Release:          "4.17.0",
 					TemplateDefaults: provisioningv1alpha1.TemplateDefaults{
-						// Don't include HwTemplate to avoid hardware plugin dependency
+						// Don't include HwTemplate to avoid hardware manager dependency
 					},
 				},
 				Status: provisioningv1alpha1.ClusterTemplateStatus{
@@ -1651,7 +1650,7 @@ plan:
 		)
 
 		BeforeEach(func() {
-			// Create a ClusterTemplate with hardware template for NAR provisioning tests
+			// Create a ClusterTemplate with hardware configuration for NAR provisioning tests
 			narProvisioningTemplate = &provisioningv1alpha1.ClusterTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-nar-provisioning-template.v1.0.0",
@@ -1735,19 +1734,19 @@ plan:
 			}
 		})
 
-		Context("when renderHardwareTemplate returns input error", func() {
+		Context("when renderNodeAllocationRequest returns input error", func() {
 			It("should call checkClusterDeployConfigState and return appropriate result", func() {
-				// This will trigger hardware template rendering error due to missing template
+				// This will trigger NodeAllocationRequest build error due to missing template
 				result, proceed, err := narProvisioningTask.handleNodeAllocationRequestProvisioning(ctx, renderedClusterInstance)
 
-				// Input error from hardware template rendering should trigger checkClusterDeployConfigState
+				// Input error from NodeAllocationRequest build should trigger checkClusterDeployConfigState
 				Expect(err).To(HaveOccurred())
 				Expect(proceed).To(BeFalse())
 				Expect(result).ToNot(BeNil()) // Should return a valid ctrl.Result
 			})
 		})
 
-		Context("when renderHardwareTemplate returns internal error", func() {
+		Context("when renderNodeAllocationRequest returns internal error", func() {
 			It("should return doNotRequeue with error", func() {
 				result, proceed, err := narProvisioningTask.handleNodeAllocationRequestProvisioning(ctx, renderedClusterInstance)
 
@@ -1776,13 +1775,13 @@ plan:
 			It("should handle missing nodeAllocationRequest identifier appropriately", func() {
 				result, proceed, err := narProvisioningTask.handleNodeAllocationRequestProvisioning(ctx, renderedClusterInstance)
 
-				// NAR creation fails due to missing hardware template data
+				// NAR creation fails due to missing hardware configuration data
 				Expect(err).To(HaveOccurred())
 				Expect(proceed).To(BeFalse())
 				Expect(result).ToNot(BeNil()) // Should return a valid ctrl.Result
 
 				// The specific error depends on where the failure occurs in the processing chain
-				// Could be hardware template error, missing identifier, or other validation errors
+				// Could be NodeAllocationRequest build error, missing identifier, or other validation errors
 			})
 		})
 
@@ -1846,7 +1845,7 @@ plan:
 
 		Context("when hardware is not yet provisioned", func() {
 			It("should return requeueWithShortInterval", func() {
-				Skip("Integration test requiring hardware plugin status checks - not suitable for unit testing")
+				Skip("Integration test requiring hardware manager status checks - not suitable for unit testing")
 			})
 		})
 
@@ -1940,7 +1939,7 @@ plan:
 		})
 
 		Context("integration with hardware provisioning workflow", func() {
-			It("should properly integrate with hardware template rendering and NAR creation", func() {
+			It("should properly integrate with NodeAllocationRequest build and NAR creation", func() {
 				// Test that the method correctly integrates with hardware provisioning components
 				result, proceed, err := narProvisioningTask.handleNodeAllocationRequestProvisioning(ctx, renderedClusterInstance)
 
@@ -2308,7 +2307,7 @@ plan:
 			}
 			Expect(c.Create(ctx, ns)).To(Succeed())
 
-			// Create ClusterTemplate without hardware template (no hardware provisioning)
+			// Create ClusterTemplate without hardware configuration (no hardware provisioning)
 			noHwTemplate := &provisioningv1alpha1.ClusterTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-no-hw.v1.0.0",
@@ -2442,7 +2441,7 @@ nodes:
 			}
 			Expect(c.Create(ctx, cr)).To(Succeed())
 
-			// Create provisioning request reconciler task with no hardware template (simulates no hardware provisioning)
+			// Create provisioning request reconciler task with no hardware configuration (simulates no hardware provisioning)
 			task = &provisioningRequestReconcilerTask{
 				logger: reconciler.Logger,
 				client: c,
@@ -2872,14 +2871,14 @@ nodes:
 		Context("when NodeAllocationRequest exists", func() {
 			BeforeEach(func() {
 				// Create a NAR CR with the same name as the PR
-				nar := &pluginsv1alpha1.NodeAllocationRequest{
+				nar := &hwmgmtv1alpha1.NodeAllocationRequest{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      testPRName,
 						Namespace: constants.DefaultNamespace,
 					},
-					Spec: pluginsv1alpha1.NodeAllocationRequestSpec{
+					Spec: hwmgmtv1alpha1.NodeAllocationRequestSpec{
 						ClusterId:           testClusterName,
-						LocationSpec:        pluginsv1alpha1.LocationSpec{Site: "test-site"},
+						LocationSpec:        hwmgmtv1alpha1.LocationSpec{Site: "test-site"},
 						ConfigTransactionId: 12345,
 					},
 				}
@@ -3398,7 +3397,7 @@ plan:
 			cr, clusterTemplate, upgradeDefaults,
 		).WithStatusSubresource(
 			&provisioningv1alpha1.ProvisioningRequest{},
-			&pluginsv1alpha1.NodeAllocationRequest{},
+			&hwmgmtv1alpha1.NodeAllocationRequest{},
 		).Build()
 		reconciler.Client = c
 
@@ -4267,7 +4266,7 @@ plan:
 					}
 					Expect(isValidResult).To(BeTrue(), "Result should be doNotRequeue or requeueWithShortInterval")
 
-					// Error might occur due to missing hardware plugin dependencies
+					// Error might occur due to missing hardware manager dependencies
 					// This is acceptable in test environment due to missing dependencies
 					_ = err // Explicitly ignore error in test environment
 
@@ -4567,7 +4566,7 @@ plan:
 
 		Context("when hardware provisioning is not skipped", func() {
 			BeforeEach(func() {
-				// Set up hardware template to ensure hardware provisioning is not skipped
+				// Set up hardware configuration to ensure hardware provisioning is not skipped
 				deployConfigCR.Status.Extensions = provisioningv1alpha1.Extensions{}
 				Expect(c.Status().Update(ctx, deployConfigCR)).To(Succeed())
 			})
@@ -4579,7 +4578,7 @@ plan:
 				})
 
 				It("should return error and valid result", func() {
-					Skip("Integration test requiring full hardware plugin client functionality - not suitable for unit testing")
+					Skip("Integration test requiring full hardware manager functionality - not suitable for unit testing")
 				})
 			})
 
@@ -4589,7 +4588,7 @@ plan:
 				})
 
 				It("should return error and valid result", func() {
-					Skip("Integration test requiring full hardware plugin client functionality - not suitable for unit testing")
+					Skip("Integration test requiring full hardware manager functionality - not suitable for unit testing")
 				})
 			})
 
@@ -4599,19 +4598,19 @@ plan:
 				})
 
 				It("should return error and valid result", func() {
-					Skip("Integration test requiring full hardware plugin client functionality - not suitable for unit testing")
+					Skip("Integration test requiring full hardware manager functionality - not suitable for unit testing")
 				})
 			})
 
 			Context("when hardware provisioning times out or fails", func() {
 				BeforeEach(func() {
 					// Create a NAR with a timed-out provisioning condition
-					nar := &pluginsv1alpha1.NodeAllocationRequest{
+					nar := &hwmgmtv1alpha1.NodeAllocationRequest{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      deployConfigCR.Name,
 							Namespace: constants.DefaultNamespace,
 						},
-						Spec: pluginsv1alpha1.NodeAllocationRequestSpec{
+						Spec: hwmgmtv1alpha1.NodeAllocationRequestSpec{
 							ClusterId: deployConfigCR.Name,
 						},
 					}
@@ -4640,14 +4639,14 @@ plan:
 
 			Context("when hardware is not yet provisioned", func() {
 				It("should return requeueWithShortInterval", func() {
-					Skip("Integration test requiring hardware plugin status checks - not suitable for unit testing")
+					Skip("Integration test requiring hardware manager status checks - not suitable for unit testing")
 				})
 			})
 		})
 
 		Context("when hardware provisioning is skipped", func() {
 			BeforeEach(func() {
-				// Ensure hardware template is empty to skip hardware provisioning
+				// Ensure hardware configuration is empty to skip hardware provisioning
 				deployConfigTemplate.Spec.TemplateDefaults.HwMgmtDefaults = provisioningv1alpha1.HwMgmtDefaults{}
 				deployConfigTask.ctDetails.templates.HwMgmtDefaults = provisioningv1alpha1.HwMgmtDefaults{}
 				Expect(c.Update(ctx, deployConfigTemplate)).To(Succeed())
@@ -5153,9 +5152,6 @@ plan:
 			})
 		})
 	})
-
-	// initializeHardwarePluginClientWithRetry tests removed — function eliminated
-	// in NAR API re-architecture (Phase 1). Hardware plugin REST client is no longer used.
 
 	Describe("checkOverallProvisioningTimeout", func() {
 		var (

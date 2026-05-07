@@ -34,7 +34,7 @@ TMPDIR_PREFIX="${TMPDIR:-/tmp}/oran-o2ims-swagger-ui."
 REDOCLY_CLI_VERSION="2.25.2"
 
 # OpenAPI specs to serve (excluding common which contains shared types)
-OPENAPI_SPECS=(resources alarms provisioning artifacts cluster hwplugin-inventory hwplugin-provisioning hwplugin-nar-callback)
+OPENAPI_SPECS=(resources alarms provisioning artifacts cluster)
 
 # API display names
 declare -A API_NAMES=(
@@ -43,9 +43,6 @@ declare -A API_NAMES=(
     [provisioning]="Infrastructure Provisioning"
     [artifacts]="Infrastructure Artifacts"
     [cluster]="Infrastructure Cluster"
-    [hwplugin-inventory]="Hardware Plugin Inventory"
-    [hwplugin-provisioning]="Hardware Plugin Provisioning"
-    [hwplugin-nar-callback]="Hardware Plugin NAR Callback"
 )
 
 # Source file paths for each spec
@@ -55,9 +52,6 @@ declare -A API_PATHS=(
     [provisioning]="${PROJECT_ROOT}/internal/service/provisioning/api/openapi.yaml"
     [artifacts]="${PROJECT_ROOT}/internal/service/artifacts/api/openapi.yaml"
     [cluster]="${PROJECT_ROOT}/internal/service/cluster/api/openapi.yaml"
-    [hwplugin-inventory]="${PROJECT_ROOT}/hwmgr-plugins/api/openapi/specs/inventory.yaml"
-    [hwplugin-provisioning]="${PROJECT_ROOT}/hwmgr-plugins/api/openapi/specs/provisioning.yaml"
-    [hwplugin-nar-callback]="${PROJECT_ROOT}/hwmgr-plugins/api/openapi/specs/nar_callback.yaml"
 )
 
 # Cleanup function for error cases

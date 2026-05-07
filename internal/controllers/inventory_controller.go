@@ -76,12 +76,12 @@ import (
 //+kubebuilder:rbac:groups="batch",resources=cronjobs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch;update
 //+kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=plugins.clcm.openshift.io,resources=nodeallocationrequests,verbs=get;list;watch;update;patch;delete
-//+kubebuilder:rbac:groups=plugins.clcm.openshift.io,resources=nodeallocationrequests/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=plugins.clcm.openshift.io,resources=nodeallocationrequests/finalizers,verbs=update;patch
-//+kubebuilder:rbac:groups=plugins.clcm.openshift.io,resources=allocatednodes,verbs=get;create;list;watch;update;patch;delete
-//+kubebuilder:rbac:groups=plugins.clcm.openshift.io,resources=allocatednodes/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=plugins.clcm.openshift.io,resources=allocatednodes/finalizers,verbs=update;patch
+//+kubebuilder:rbac:groups=clcm.openshift.io,resources=nodeallocationrequests,verbs=get;list;watch;update;patch;delete
+//+kubebuilder:rbac:groups=clcm.openshift.io,resources=nodeallocationrequests/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=clcm.openshift.io,resources=nodeallocationrequests/finalizers,verbs=update;patch
+//+kubebuilder:rbac:groups=clcm.openshift.io,resources=allocatednodes,verbs=get;create;list;watch;update;patch;delete
+//+kubebuilder:rbac:groups=clcm.openshift.io,resources=allocatednodes/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=clcm.openshift.io,resources=allocatednodes/finalizers,verbs=update;patch
 //+kubebuilder:rbac:groups=clcm.openshift.io,resources=hardwareprofiles,verbs=get;list;watch;create;update;patch
 //+kubebuilder:rbac:groups=clcm.openshift.io,resources=hardwareprofiles/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=metal3.io,resources=baremetalhosts,verbs=get;list;watch;update;patch
@@ -906,18 +906,18 @@ func (t *reconcilerTask) run(ctx context.Context) (nextReconcile ctrl.Result, er
 	}
 	ctlrutils.LogPhaseComplete(ctx, t.logger, "o2ims_servers_setup", time.Since(phaseStartTime))
 
-	// Phase 5: Hardware Plugin setup
-	ctx = ctlrutils.LogPhaseStart(ctx, t.logger, "hardware_plugin_setup")
+	// Phase 5: Hardware manager setup
+	ctx = ctlrutils.LogPhaseStart(ctx, t.logger, "hardware_manager_setup")
 	phaseStartTime = time.Now()
 
-	// Setup Metal3 HardwarePlugin Server
-	t.logger.InfoContext(ctx, "Setting up Metal3 HardwarePlugin Server")
-	nextReconcile, err = t.setupMetal3PluginServer(ctx, nextReconcile)
+	// Setup hardware manager
+	t.logger.InfoContext(ctx, "Setting up hardware manager")
+	nextReconcile, err = t.setupHardwareManager(ctx, nextReconcile)
 	if err != nil {
-		ctlrutils.LogError(ctx, t.logger, "Failed to setup Metal3 HardwarePlugin Server", err)
+		ctlrutils.LogError(ctx, t.logger, "Failed to setup hardware manager", err)
 		return
 	}
-	ctlrutils.LogPhaseComplete(ctx, t.logger, "hardware_plugin_setup", time.Since(phaseStartTime))
+	ctlrutils.LogPhaseComplete(ctx, t.logger, "hardware_manager_setup", time.Since(phaseStartTime))
 
 	// Phase 6: Readiness validation
 	ctx = ctlrutils.LogPhaseStart(ctx, t.logger, "readiness_validation")
@@ -1134,7 +1134,7 @@ func (t *reconcilerTask) createResourceServerClusterRole(ctx context.Context) er
 			},
 			{
 				APIGroups: []string{
-					"plugins.clcm.openshift.io",
+					"clcm.openshift.io",
 				},
 				Resources: []string{
 					"allocatednodes",

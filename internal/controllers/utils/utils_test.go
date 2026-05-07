@@ -1607,7 +1607,7 @@ var _ = Describe("Server predicate functions", func() {
 	}
 
 	metricsOnlyServers := []string{
-		Metal3PluginServerName,
+		HardwareManagerServerName,
 	}
 
 	Describe("HasApiEndpoints", func() {
@@ -1670,7 +1670,7 @@ var _ = Describe("Server predicate functions", func() {
 		It("returns false for servers without databases", func() {
 			Expect(HasDatabase(InventoryArtifactsServerName)).To(BeFalse())
 			Expect(HasDatabase(InventoryProvisioningServerName)).To(BeFalse())
-			Expect(HasDatabase(Metal3PluginServerName)).To(BeFalse())
+			Expect(HasDatabase(HardwareManagerServerName)).To(BeFalse())
 		})
 	})
 
@@ -1684,7 +1684,7 @@ var _ = Describe("Server predicate functions", func() {
 		It("returns false for servers not requiring internal listener", func() {
 			Expect(RequiresInternalListener(InventoryArtifactsServerName)).To(BeFalse())
 			Expect(RequiresInternalListener(InventoryProvisioningServerName)).To(BeFalse())
-			Expect(RequiresInternalListener(Metal3PluginServerName)).To(BeFalse())
+			Expect(RequiresInternalListener(HardwareManagerServerName)).To(BeFalse())
 		})
 	})
 
@@ -1698,8 +1698,31 @@ var _ = Describe("Server predicate functions", func() {
 		})
 
 		It("returns false for servers not needing OAuth", func() {
-			Expect(NeedsOAuthAccess(Metal3PluginServerName)).To(BeFalse())
+			Expect(NeedsOAuthAccess(HardwareManagerServerName)).To(BeFalse())
 			Expect(NeedsOAuthAccess(InventoryDatabaseServerName)).To(BeFalse())
+		})
+	})
+
+	Describe("GetServerArgs", func() {
+		var inventory *inventoryv1alpha1.Inventory
+
+		BeforeEach(func() {
+			inventory = &inventoryv1alpha1.Inventory{}
+		})
+
+		It("returns correct args for hardware manager server", func() {
+			args, err := GetServerArgs(inventory, HardwareManagerServerName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(args).ToNot(BeNil())
+			Expect(args).To(Equal(HardwareManagerServerArgs))
+			args[0] = "mutated"
+			Expect(HardwareManagerServerArgs[0]).ToNot(Equal("mutated"))
+		})
+
+		It("returns nil for unknown server", func() {
+			args, err := GetServerArgs(inventory, "unknown-server")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(args).To(BeNil())
 		})
 	})
 })

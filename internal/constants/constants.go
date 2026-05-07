@@ -75,9 +75,9 @@ const (
 	ResourceServerCmd     = "resource-server"
 )
 
-// Hardware plugin command names
+// Hardware manager command names
 const (
-	Metal3HardwarePluginManagerCmd = "metal3-hardwareplugin-manager"
+	HardwareManagerCmd = "hardwaremanager"
 )
 
 // TLS/Certificate field names

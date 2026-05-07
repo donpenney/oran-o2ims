@@ -36,7 +36,7 @@ spec:
     - description: AllocatedNode is the schema for an allocated node
       displayName: Allocated Node
       kind: AllocatedNode
-      name: allocatednodes.plugins.clcm.openshift.io
+      name: allocatednodes.clcm.openshift.io
       resources:
       - kind: Namespace
         name: ""
@@ -417,7 +417,7 @@ spec:
         nodes
       displayName: Node Allocation Request
       kind: NodeAllocationRequest
-      name: nodeallocationrequests.plugins.clcm.openshift.io
+      name: nodeallocationrequests.clcm.openshift.io
       resources:
       - kind: Namespace
         name: ""
@@ -433,7 +433,7 @@ spec:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: |-
           ClusterProvisioned indicates that the cluster using the allocated nodes has been
-          fully provisioned and is operational. The hardware plugin uses this signal to
+          fully provisioned and is operational. The hardware manager uses this signal to
           perform any post-provisioning steps, such as enabling BMO management of
           IBI-provisioned nodes.
         displayName: Cluster Provisioned
@@ -464,10 +464,10 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: |-
-          SkipCleanup indicates that the hardware plugin should skip cleanup operations
+          SkipCleanup indicates that the hardware manager should skip cleanup operations
           (disk wipe, power off) when the NodeAllocationRequest is deleted. This is used
           when the spoke cluster needs to remain running, such as during seed image
-          generation for IBI/IBU. The hardware plugin propagates this to the BMH as the
+          generation for IBI/IBU. The hardware manager propagates this to the BMH as the
           clcm.openshift.io/skip-cleanup annotation.
         displayName: Skip Cleanup
         path: skipCleanup
@@ -483,10 +483,13 @@ spec:
           This timestamp is used for timeout calculations. The active operation is determined from the conditions.
         displayName: Hardware Operation Start Time
         path: hardwareOperationStartTime
-      - displayName: Hw Mgr Plugin
-        path: hwMgrPlugin
       - displayName: Observed Config Transaction Id
         path: observedConfigTransactionId
+      - description: |-
+          ObservedGeneration is the most recent generation observed by the controller.
+          Used to detect spec changes that require re-processing.
+        displayName: Observed Generation
+        path: observedGeneration
       - description: Properties represent the node properties in the pool
         displayName: Properties
         path: properties

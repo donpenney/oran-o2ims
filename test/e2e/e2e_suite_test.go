@@ -33,29 +33,26 @@ import (
 
 	metal3v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	ibgu "github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/imagebasedgroupupgrades/v1alpha1"
-	pluginsv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/plugins/v1alpha1"
 	hwmgmtv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
 	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
-	hwmgrutils "github.com/openshift-kni/oran-o2ims/hwmgr-plugins/controller/utils"
-	metal3pluginscontrollers "github.com/openshift-kni/oran-o2ims/hwmgr-plugins/metal3/controller"
 	"github.com/openshift-kni/oran-o2ims/internal/constants"
 	provisioningcontrollers "github.com/openshift-kni/oran-o2ims/internal/controllers"
+	hwmgrcontrollers "github.com/openshift-kni/oran-o2ims/internal/hardwaremanager/controller"
+	hwmgrutils "github.com/openshift-kni/oran-o2ims/internal/hardwaremanager/utils"
 	testutils "github.com/openshift-kni/oran-o2ims/test/utils"
 	assistedservicev1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 )
 
 var (
-	K8SClient                           client.Client
-	ProvisioningManager                 ctrl.Manager
-	Metal3Manager                       ctrl.Manager
-	ProvisioningRequestTestReconciler   *provisioningcontrollers.ProvisioningRequestReconciler
-	ClusterTemplateTestReconciler       *provisioningcontrollers.ClusterTemplateReconciler
-	NodeAllocationRequestTestReconciler *metal3pluginscontrollers.NodeAllocationRequestReconciler
-	AllocatedNodeTestReconciler         *metal3pluginscontrollers.AllocatedNodeReconciler
-	testEnv                             *envtest.Environment
-	ctx                                 context.Context
-	cancel                              context.CancelFunc
+	K8SClient                         client.Client
+	ProvisioningManager               ctrl.Manager
+	HwMgrManager                      ctrl.Manager
+	ProvisioningRequestTestReconciler *provisioningcontrollers.ProvisioningRequestReconciler
+	ClusterTemplateTestReconciler     *provisioningcontrollers.ClusterTemplateReconciler
+	testEnv                           *envtest.Environment
+	ctx                               context.Context
+	cancel                            context.CancelFunc
 	// store external CRDs
 	tmpDir string
 )
@@ -108,12 +105,6 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	err = ibgu.AddToScheme(testScheme)
 	Expect(err).NotTo(HaveOccurred())
-	err = policiesv1.AddToScheme(testScheme)
-	Expect(err).NotTo(HaveOccurred())
-	err = clusterv1.AddToScheme(testScheme)
-	Expect(err).NotTo(HaveOccurred())
-	err = pluginsv1alpha1.AddToScheme(testScheme)
-	Expect(err).NotTo(HaveOccurred())
 	err = hivev1.AddToScheme(testScheme)
 	Expect(err).NotTo(HaveOccurred())
 	err = metal3v1alpha1.AddToScheme(testScheme)
@@ -148,15 +139,15 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 	Expect(ProvisioningManager).NotTo(BeNil())
 
-	// Get a separate manager for Metal3 controllers (simulates separate pod deployment).
-	Metal3Manager, err = ctrl.NewManager(cfg, ctrl.Options{
+	// Get a separate manager for hardware manager controllers (simulates separate pod deployment).
+	HwMgrManager, err = ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: testScheme,
 		Metrics: metricsserver.Options{
-			BindAddress: ":8081", // Use different port to avoid conflict
+			BindAddress: "0", // Disable metrics listener in tests
 		},
 	})
 	Expect(err).ToNot(HaveOccurred())
-	Expect(Metal3Manager).NotTo(BeNil())
+	Expect(HwMgrManager).NotTo(BeNil())
 
 	// Get the client.
 	K8SClient, err = client.New(cfg, client.Options{Scheme: testScheme})
@@ -171,24 +162,20 @@ var _ = BeforeSuite(func() {
 	err = ClusterTemplateTestReconciler.SetupWithManager(ProvisioningManager)
 	Expect(err).ToNot(HaveOccurred())
 
-	// Initialize NodeAllocationRequest utils for Metal3 controllers
+	// Initialize NodeAllocationRequest utils for hardware manager controllers
 	err = hwmgrutils.InitNodeAllocationRequestUtils(testScheme)
 	Expect(err).ToNot(HaveOccurred())
 
-	// Setup Metal3 controllers on separate manager (simulates separate pod deployment)
-	metal3controllers, err := metal3pluginscontrollers.SetupMetal3Controllers(Metal3Manager, constants.DefaultNamespace, logger)
+	// Setup hardware manager controllers on separate manager (simulates separate pod deployment)
+	err = hwmgrcontrollers.SetupControllers(HwMgrManager, constants.DefaultNamespace, logger)
 	Expect(err).ToNot(HaveOccurred())
-	NodeAllocationRequestTestReconciler = metal3controllers.NodeAllocationReconciler
-	AllocatedNodeTestReconciler = metal3controllers.AllocatedNodeReconciler
 
-	// Override Metal3 NoncachedClient to use the same direct K8SClient used by
+	// Override hardware manager NoncachedClient to use the same direct K8SClient used by
 	// provisioning controllers and test assertions, avoiding envtest watchcache
 	// timing discrepancies between different API reader instances.
 	// Client (cached) is kept as mgr.GetClient() because it has field indexers
 	// (e.g., spec.nodeAllocationRequest) required by field selector queries.
-	NodeAllocationRequestTestReconciler.NoncachedClient = K8SClient
-	AllocatedNodeTestReconciler.NoncachedClient = K8SClient
-	metal3controllers.HostFirmwareComponentsReconciler.NoncachedClient = K8SClient
+	hwmgrcontrollers.OverrideNoncachedClient(K8SClient)
 
 	// Setup the ProvisioningRequest Reconciler on main manager.
 	ProvReqTestReconciler := &provisioningcontrollers.ProvisioningRequestReconciler{
@@ -215,15 +202,15 @@ var _ = BeforeSuite(func() {
 	// Start the main O2IMS manager
 	go func() {
 		defer GinkgoRecover()
-		err = ProvisioningManager.Start(ctx)
-		Expect(err).ToNot(HaveOccurred(), "failed to run main manager")
+		startErr := ProvisioningManager.Start(ctx)
+		Expect(startErr).ToNot(HaveOccurred(), "failed to run main manager")
 	}()
 
-	// Start the Metal3 manager
+	// Start the hardware manager
 	go func() {
 		defer GinkgoRecover()
-		err = Metal3Manager.Start(ctx)
-		Expect(err).ToNot(HaveOccurred(), "failed to run Metal3 manager")
+		startErr := HwMgrManager.Start(ctx)
+		Expect(startErr).ToNot(HaveOccurred(), "failed to run hardware manager")
 	}()
 })
 
