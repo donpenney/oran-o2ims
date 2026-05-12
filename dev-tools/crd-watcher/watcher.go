@@ -81,6 +81,9 @@ func NewCRDWatcher(clientset kubernetes.Interface, restConfig *rest.Config, sche
 			"inventory-resources",
 			"inventory-node-clusters",
 		}
+		if config.EnableAlarms {
+			inventoryTypes = append(inventoryTypes, CRDTypeInventoryAlarms)
+		}
 		crdTypes = append(crdTypes, inventoryTypes...)
 	}
 
@@ -155,6 +158,8 @@ func (w *CRDWatcher) verifyResourceExists(event WatchEvent) bool {
 		return w.verifyInventoryResourcePoolExists(ctx, event)
 	case "inventory-node-clusters":
 		return w.verifyInventoryNodeClusterExists(ctx, event)
+	case CRDTypeInventoryAlarms:
+		return true // Alarms are fully replaced on each refresh
 	default:
 		// For Kubernetes CRDs, use the dynamic client
 		return w.verifyKubernetesResourceExists(ctx, event)
@@ -310,6 +315,13 @@ func (w *CRDWatcher) Start(ctx context.Context) error {
 			klog.Errorf("Failed to fetch initial inventory node clusters: %v", err)
 		}
 
+		// Fetch and display initial alarms if enabled
+		if w.config.EnableAlarms {
+			if err := w.fetchAndDisplayAlarms(ctx); err != nil {
+				klog.Errorf("Failed to fetch initial alarms: %v", err)
+			}
+		}
+
 		// Start the inventory refresh timer for periodic updates
 		w.startInventoryRefreshTimer(ctx)
 	}
@@ -370,6 +382,16 @@ func (w *CRDWatcher) ListAndDisplay(ctx context.Context) error {
 			klog.Errorf("Failed to list inventory node clusters: %v", err)
 		} else {
 			allEvents = append(allEvents, nodeClusterEvents...)
+		}
+
+		// Fetch alarms if enabled
+		if w.config.EnableAlarms {
+			alarmEvents, err := w.listInventoryAlarms(ctx)
+			if err != nil {
+				klog.Errorf("Failed to list alarms: %v", err)
+			} else {
+				allEvents = append(allEvents, alarmEvents...)
+			}
 		}
 	}
 
@@ -533,6 +555,70 @@ func (w *CRDWatcher) listInventoryNodeClusters(ctx context.Context) ([]WatchEven
 	return events, nil
 }
 
+func (w *CRDWatcher) listInventoryAlarms(ctx context.Context) ([]WatchEvent, error) {
+	klog.V(1).Info("Fetching alarms from monitoring API")
+
+	alarms, err := w.inventoryClient.GetAlarms(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get alarms: %w", err)
+	}
+
+	filtered := w.filterAlarms(alarms)
+
+	var events []WatchEvent
+	for _, alarm := range filtered {
+		event := WatchEvent{
+			Type:      watch.Added,
+			Object:    alarm.ToRuntimeObject(),
+			Timestamp: time.Now(),
+			CRDType:   CRDTypeInventoryAlarms,
+		}
+		events = append(events, event)
+	}
+
+	klog.V(1).Infof("Collected %d alarm events (filtered from %d total)", len(events), len(alarms))
+	return events, nil
+}
+
+func (w *CRDWatcher) filterAlarms(alarms []AlarmRecord) []AlarmRecord {
+	if len(w.config.AlarmExcludeNames) == 0 && w.config.AlarmMaxSeverity >= 5 &&
+		w.config.AlarmCluster == "" && len(w.config.AlarmExcludeClusters) == 0 {
+		return alarms
+	}
+
+	excludeNames := make(map[string]bool, len(w.config.AlarmExcludeNames))
+	for _, name := range w.config.AlarmExcludeNames {
+		excludeNames[name] = true
+	}
+
+	excludeClusters := make(map[string]bool, len(w.config.AlarmExcludeClusters))
+	for _, cluster := range w.config.AlarmExcludeClusters {
+		excludeClusters[cluster] = true
+	}
+
+	var result []AlarmRecord
+	for _, alarm := range alarms {
+		if excludeNames[alarm.Extensions["alertname"]] {
+			continue
+		}
+		if alarm.PerceivedSeverity > w.config.AlarmMaxSeverity {
+			continue
+		}
+		cluster := alarm.Extensions["managed_cluster"]
+		if cluster == "" {
+			cluster = alarm.Extensions["clusterID"]
+		}
+		if w.config.AlarmCluster != "" && cluster != w.config.AlarmCluster {
+			continue
+		}
+		if excludeClusters[cluster] {
+			continue
+		}
+		result = append(result, alarm)
+	}
+	return result
+}
+
 func (w *CRDWatcher) fetchAndDisplayInventoryResourcePools(ctx context.Context) error {
 	resourcePools, err := w.inventoryClient.GetAllResourcePools(ctx)
 	if err != nil {
@@ -604,6 +690,29 @@ func (w *CRDWatcher) fetchAndDisplayInventoryNodeClusters(ctx context.Context) e
 	}
 
 	klog.V(1).Infof("Displayed %d inventory node clusters (filtered from %d total)", filteredCount, len(nodeClusters))
+	return nil
+}
+
+func (w *CRDWatcher) fetchAndDisplayAlarms(ctx context.Context) error {
+	alarms, err := w.inventoryClient.GetAlarms(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get alarms: %w", err)
+	}
+
+	filtered := w.filterAlarms(alarms)
+	for _, alarm := range filtered {
+		event := WatchEvent{
+			Type:      watch.Added,
+			Object:    alarm.ToRuntimeObject(),
+			Timestamp: time.Now(),
+			CRDType:   CRDTypeInventoryAlarms,
+		}
+		if err := w.formatter.FormatEvent(event); err != nil {
+			klog.Errorf("Error formatting alarm event: %v", err)
+		}
+	}
+
+	klog.V(1).Infof("Displayed %d alarms (filtered from %d total)", len(filtered), len(alarms))
 	return nil
 }
 
@@ -854,6 +963,14 @@ func (w *CRDWatcher) performInventoryRefreshWithReason(ctx context.Context, reas
 		w.logInventoryRefreshError("node clusters", err)
 	}
 
+	// Refresh alarms if enabled
+	if w.config.EnableAlarms {
+		if err := w.refreshAlarms(refreshCtx); err != nil {
+			hadError = true
+			w.logInventoryRefreshError("alarms", err)
+		}
+	}
+
 	if hadError {
 		w.inventoryConsecutiveFailures++
 	} else {
@@ -964,6 +1081,29 @@ func (w *CRDWatcher) refreshInventoryNodeClusters(ctx context.Context) error {
 	}
 
 	klog.V(2).Infof("Refreshed %d inventory node clusters (filtered from %d total)", filteredCount, len(nodeClusters))
+	return nil
+}
+
+func (w *CRDWatcher) refreshAlarms(ctx context.Context) error {
+	alarms, err := w.inventoryClient.GetAlarms(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get alarms: %w", err)
+	}
+
+	filtered := w.filterAlarms(alarms)
+	for _, alarm := range filtered {
+		event := WatchEvent{
+			Type:      watch.Added,
+			Object:    alarm.ToRuntimeObject(),
+			Timestamp: time.Now(),
+			CRDType:   CRDTypeInventoryAlarms,
+		}
+		if err := w.formatter.FormatEvent(event); err != nil {
+			klog.Errorf("Error formatting refreshed alarm event: %v", err)
+		}
+	}
+
+	klog.V(2).Infof("Refreshed %d alarms (filtered from %d total)", len(filtered), len(alarms))
 	return nil
 }
 
