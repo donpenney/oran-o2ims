@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -40,45 +41,110 @@ type ResourceServerConfig struct {
 	ExternalAddress string
 }
 
+// alarmDictCache holds pre-built alarm dictionary API models for serving
+// from memory instead of querying the database on every request.
+type alarmDictCache struct {
+	mu           sync.RWMutex
+	all          []generated.AlarmDictionary
+	byID         map[uuid.UUID]*generated.AlarmDictionary
+	byResourceID map[uuid.UUID]*generated.AlarmDictionary
+	valid        bool
+}
+
 // ResourceServer defines the instance attributes for an instance of a resource server
 type ResourceServer struct {
 	Config                   *ResourceServerConfig
 	Info                     api.OCloudInfo
 	Repo                     repo.ResourcesRepositoryInterface
 	SubscriptionEventHandler notifier.SubscriptionEventHandler
+	alarmDicts               alarmDictCache
 }
 
-func (r *ResourceServer) GetAlarmDictionaries(ctx context.Context, request api.GetAlarmDictionariesRequestObject) (api.GetAlarmDictionariesResponseObject, error) {
+// InvalidateAlarmDictCache clears the cached alarm dictionaries so they
+// will be reloaded from the database on the next API request.
+func (r *ResourceServer) InvalidateAlarmDictCache() {
+	r.alarmDicts.mu.Lock()
+	defer r.alarmDicts.mu.Unlock()
+	r.alarmDicts.valid = false
+	slog.Info("Alarm dictionary cache invalidated")
+}
+
+// ensureAlarmDictCache populates the alarm dictionary cache if it is not
+// already valid. Must be called with no lock held.
+func (r *ResourceServer) ensureAlarmDictCache(ctx context.Context) error {
+	r.alarmDicts.mu.RLock()
+	if r.alarmDicts.valid {
+		r.alarmDicts.mu.RUnlock()
+		return nil
+	}
+	r.alarmDicts.mu.RUnlock()
+
+	r.alarmDicts.mu.Lock()
+	defer r.alarmDicts.mu.Unlock()
+
+	if r.alarmDicts.valid {
+		return nil
+	}
+
 	records, err := r.Repo.GetAlarmDictionaries(ctx)
 	if err != nil {
+		return fmt.Errorf("failed to get alarm dictionaries: %w", err)
+	}
+
+	all := make([]generated.AlarmDictionary, len(records))
+	byID := make(map[uuid.UUID]*generated.AlarmDictionary, len(records))
+	byResourceID := make(map[uuid.UUID]*generated.AlarmDictionary, len(records))
+
+	for i, record := range records {
+		definitions, err := r.Repo.GetAlarmDefinitionsByAlarmDictionaryID(ctx, record.AlarmDictionaryID)
+		if err != nil {
+			return fmt.Errorf("failed to get alarm definitions for dictionary %s: %w", record.AlarmDictionaryID, err)
+		}
+
+		all[i] = models.AlarmDictionaryToModel(&record, definitions)
+		byID[record.AlarmDictionaryID] = &all[i]
+		byResourceID[record.ResourceTypeID] = &all[i]
+	}
+
+	r.alarmDicts.all = all
+	r.alarmDicts.byID = byID
+	r.alarmDicts.byResourceID = byResourceID
+	r.alarmDicts.valid = true
+
+	slog.Info("Alarm dictionary cache populated", "dictionaries", len(all))
+	return nil
+}
+
+func (r *ResourceServer) GetAlarmDictionaries(ctx context.Context, _ api.GetAlarmDictionariesRequestObject) (api.GetAlarmDictionariesResponseObject, error) {
+	if err := r.ensureAlarmDictCache(ctx); err != nil {
 		return api.GetAlarmDictionaries500ApplicationProblemPlusJSONResponse{
-			Detail: fmt.Sprintf("failed to get alarm dictionaries: %s", err.Error()),
+			Detail: err.Error(),
 			Status: http.StatusInternalServerError,
 		}, nil
 	}
 
-	objects := make([]generated.AlarmDictionary, len(records))
-	for i, record := range records {
-		definitions, err := r.Repo.GetAlarmDefinitionsByAlarmDictionaryID(ctx, record.AlarmDictionaryID)
-		if err != nil {
-			return api.GetAlarmDictionaries500ApplicationProblemPlusJSONResponse{
-				AdditionalAttributes: &map[string]string{
-					"alarmDictionaryId": record.AlarmDictionaryID.String(),
-				},
-				Detail: err.Error(),
-				Status: http.StatusInternalServerError,
-			}, nil
-		}
+	r.alarmDicts.mu.RLock()
+	defer r.alarmDicts.mu.RUnlock()
 
-		objects[i] = models.AlarmDictionaryToModel(&record, definitions)
-	}
-
-	return api.GetAlarmDictionaries200JSONResponse(objects), nil
+	return api.GetAlarmDictionaries200JSONResponse(r.alarmDicts.all), nil
 }
 
 func (r *ResourceServer) GetAlarmDictionary(ctx context.Context, request api.GetAlarmDictionaryRequestObject) (api.GetAlarmDictionaryResponseObject, error) {
-	record, err := r.Repo.GetAlarmDictionary(ctx, request.AlarmDictionaryId)
-	if errors.Is(err, svcutils.ErrNotFound) {
+	if err := r.ensureAlarmDictCache(ctx); err != nil {
+		return api.GetAlarmDictionary500ApplicationProblemPlusJSONResponse{
+			AdditionalAttributes: &map[string]string{
+				"alarmDictionaryId": request.AlarmDictionaryId.String(),
+			},
+			Detail: err.Error(),
+			Status: http.StatusInternalServerError,
+		}, nil
+	}
+
+	r.alarmDicts.mu.RLock()
+	defer r.alarmDicts.mu.RUnlock()
+
+	dict, found := r.alarmDicts.byID[request.AlarmDictionaryId]
+	if !found {
 		return api.GetAlarmDictionary404ApplicationProblemPlusJSONResponse{
 			AdditionalAttributes: &map[string]string{
 				"alarmDictionaryId": request.AlarmDictionaryId.String(),
@@ -87,35 +153,12 @@ func (r *ResourceServer) GetAlarmDictionary(ctx context.Context, request api.Get
 			Status: http.StatusNotFound,
 		}, nil
 	}
-	if err != nil {
-		return api.GetAlarmDictionary500ApplicationProblemPlusJSONResponse{
-			AdditionalAttributes: &map[string]string{
-				"alarmDictionaryId": request.AlarmDictionaryId.String(),
-			},
-			Detail: err.Error(),
-			Status: http.StatusInternalServerError,
-		}, nil
-	}
 
-	definitions, err := r.Repo.GetAlarmDefinitionsByAlarmDictionaryID(ctx, record.AlarmDictionaryID)
-	if err != nil {
-		return api.GetAlarmDictionary500ApplicationProblemPlusJSONResponse{
-			AdditionalAttributes: &map[string]string{
-				"alarmDictionaryId": request.AlarmDictionaryId.String(),
-			},
-			Detail: err.Error(),
-			Status: http.StatusInternalServerError,
-		}, nil
-	}
-
-	object := models.AlarmDictionaryToModel(record, definitions)
-
-	return api.GetAlarmDictionary200JSONResponse(object), nil
+	return api.GetAlarmDictionary200JSONResponse(*dict), nil
 }
 
 func (r *ResourceServer) GetResourceTypeAlarmDictionary(ctx context.Context, request api.GetResourceTypeAlarmDictionaryRequestObject) (api.GetResourceTypeAlarmDictionaryResponseObject, error) {
-	records, err := r.Repo.GetResourceTypeAlarmDictionary(ctx, request.ResourceTypeId)
-	if err != nil {
+	if err := r.ensureAlarmDictCache(ctx); err != nil {
 		return api.GetResourceTypeAlarmDictionary500ApplicationProblemPlusJSONResponse{
 			AdditionalAttributes: &map[string]string{
 				"resourceTypeId": request.ResourceTypeId.String(),
@@ -125,7 +168,11 @@ func (r *ResourceServer) GetResourceTypeAlarmDictionary(ctx context.Context, req
 		}, nil
 	}
 
-	if len(records) == 0 {
+	r.alarmDicts.mu.RLock()
+	defer r.alarmDicts.mu.RUnlock()
+
+	dict, found := r.alarmDicts.byResourceID[request.ResourceTypeId]
+	if !found {
 		return api.GetResourceTypeAlarmDictionary404ApplicationProblemPlusJSONResponse{
 			AdditionalAttributes: &map[string]string{
 				"resourceTypeId": request.ResourceTypeId.String(),
@@ -135,23 +182,7 @@ func (r *ResourceServer) GetResourceTypeAlarmDictionary(ctx context.Context, req
 		}, nil
 	}
 
-	// Safe to assume there is a single record since resource_type_id is unique in the db
-	dictionary := records[0]
-
-	// Get alarm definitions
-	definitions, err := r.Repo.GetAlarmDefinitionsByAlarmDictionaryID(ctx, dictionary.AlarmDictionaryID)
-	if err != nil {
-		return api.GetResourceTypeAlarmDictionary500ApplicationProblemPlusJSONResponse{
-			AdditionalAttributes: &map[string]string{
-				"resourceTypeId": request.ResourceTypeId.String(),
-			},
-			Detail: err.Error(),
-			Status: http.StatusInternalServerError,
-		}, nil
-	}
-
-	object := models.AlarmDictionaryToModel(&dictionary, definitions)
-	return api.GetResourceTypeAlarmDictionary200JSONResponse(object), nil
+	return api.GetResourceTypeAlarmDictionary200JSONResponse(*dict), nil
 }
 
 // GetAllVersions receives the API request to this endpoint, executes the request, and responds appropriately
