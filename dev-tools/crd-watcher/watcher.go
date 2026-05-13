@@ -1090,6 +1090,10 @@ func (w *CRDWatcher) refreshAlarms(ctx context.Context) error {
 		return fmt.Errorf("failed to get alarms: %w", err)
 	}
 
+	if tuiFormatter, ok := w.formatter.(*TUIFormatter); ok {
+		tuiFormatter.clearEventsForType(CRDTypeInventoryAlarms)
+	}
+
 	filtered := w.filterAlarms(alarms)
 	for _, alarm := range filtered {
 		event := WatchEvent{
