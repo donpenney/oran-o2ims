@@ -181,6 +181,7 @@ func Serve(config *api.ResourceServerConfig) error {
 		},
 		SubscriptionEventHandler: resourceNotifier,
 	}
+	server.InitAlarmDictCache()
 
 	serverStrictHandler := generated.NewStrictHandlerWithOptions(&server, nil,
 		generated.StrictHTTPServerOptions{

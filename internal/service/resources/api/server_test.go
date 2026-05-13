@@ -57,7 +57,7 @@ var _ = Describe("ResourceServer", func() {
 			Repo:                     mockRepo,
 			SubscriptionEventHandler: &mockSubscriptionEventHandler{},
 		}
-		server.InvalidateAlarmDictCache()
+		server.InitAlarmDictCache()
 		ctx = context.Background()
 		testUUID = uuid.New()
 	})
