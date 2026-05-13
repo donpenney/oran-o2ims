@@ -55,13 +55,16 @@ type ResourceServer struct {
 	Info                     api.OCloudInfo
 	Repo                     repo.ResourcesRepositoryInterface
 	SubscriptionEventHandler notifier.SubscriptionEventHandler
-	AlarmDicts               *cache.CacheEntry[AlarmDictData]
+	AlarmDicts               *cache.Entry[AlarmDictData]
 }
 
 // InitAlarmDictCache initializes the alarm dictionary cache with the
 // appropriate loader. Must be called before serving API requests.
+// TTL is 0 (no expiration) because the PG listener's resource_type_changed
+// handler and its 15-minute catch-up sync both call InvalidateAlarmDictCache,
+// providing the staleness bound externally.
 func (r *ResourceServer) InitAlarmDictCache() {
-	r.AlarmDicts = cache.NewCacheEntry("alarm-dictionaries", 0, func(ctx context.Context) (AlarmDictData, error) {
+	r.AlarmDicts = cache.NewEntry("alarm-dictionaries", 0, func(ctx context.Context) (AlarmDictData, error) {
 		records, err := r.Repo.GetAlarmDictionaries(ctx)
 		if err != nil {
 			return AlarmDictData{}, fmt.Errorf("failed to get alarm dictionaries: %w", err)

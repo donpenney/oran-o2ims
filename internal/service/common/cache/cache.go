@@ -16,7 +16,7 @@ import (
 
 // Entry is a thread-safe, lazily populated cache entry with optional TTL
 // expiration and explicit invalidation support.
-type CacheEntry[T any] struct {
+type Entry[T any] struct {
 	mu        sync.RWMutex
 	data      T
 	valid     bool
@@ -29,8 +29,8 @@ type CacheEntry[T any] struct {
 // NewEntry creates a cache entry that loads data using the provided function.
 // The maxAge parameter controls TTL-based expiration (0 means no TTL — only
 // explicit invalidation triggers a reload). The name is used for logging.
-func NewCacheEntry[T any](name string, maxAge time.Duration, loader func(ctx context.Context) (T, error)) *CacheEntry[T] {
-	return &CacheEntry[T]{
+func NewEntry[T any](name string, maxAge time.Duration, loader func(ctx context.Context) (T, error)) *Entry[T] {
+	return &Entry[T]{
 		name:   name,
 		maxAge: maxAge,
 		loader: loader,
@@ -38,7 +38,8 @@ func NewCacheEntry[T any](name string, maxAge time.Duration, loader func(ctx con
 }
 
 // Get returns the cached data, loading it if necessary.
-func (c *CacheEntry[T]) Get(ctx context.Context) (T, error) {
+// The returned value is shared across all callers and must not be modified.
+func (c *Entry[T]) Get(ctx context.Context) (T, error) {
 	c.mu.RLock()
 	if c.valid && (c.maxAge == 0 || time.Now().Before(c.expiresAt)) {
 		defer c.mu.RUnlock()
@@ -70,7 +71,7 @@ func (c *CacheEntry[T]) Get(ctx context.Context) (T, error) {
 }
 
 // Invalidate clears the cache so the next Get call reloads from the source.
-func (c *CacheEntry[T]) Invalidate() {
+func (c *Entry[T]) Invalidate() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.valid = false

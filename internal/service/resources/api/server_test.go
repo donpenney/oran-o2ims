@@ -1203,6 +1203,22 @@ var _ = Describe("ResourceServer", func() {
 		})
 	})
 
+	Describe("Alarm dictionary cache mid-loader failure", func() {
+		It("returns 500 when alarm definitions query fails during cache load", func() {
+			dictID := uuid.New()
+			mockRepo.EXPECT().
+				GetAlarmDictionaries(ctx).
+				Return([]models.AlarmDictionary{{AlarmDictionaryID: dictID, ResourceTypeID: uuid.New()}}, nil)
+			mockRepo.EXPECT().
+				GetAlarmDefinitionsByAlarmDictionaryID(ctx, dictID).
+				Return(nil, fmt.Errorf("definitions query failed"))
+
+			resp, err := server.GetAlarmDictionaries(ctx, apiGenerated.GetAlarmDictionariesRequestObject{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp).To(BeAssignableToTypeOf(apiGenerated.GetAlarmDictionaries500ApplicationProblemPlusJSONResponse{}))
+		})
+	})
+
 	Describe("GetResourceTypeAlarmDictionary", func() {
 		When("alarm dictionary is found for resource type", func() {
 			It("returns 200 response with alarm dictionary", func() {

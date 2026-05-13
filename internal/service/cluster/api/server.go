@@ -55,14 +55,14 @@ type ClusterServer struct {
 	Config                   *ClusterServerConfig
 	Repo                     repo.RepositoryInterface
 	SubscriptionEventHandler notifier.SubscriptionEventHandler
-	AlarmDicts               *cache.CacheEntry[AlarmDictData]
+	AlarmDicts               *cache.Entry[AlarmDictData]
 }
 
 // InitAlarmDictCache initializes the alarm dictionary cache with TTL-based
 // expiration. The cluster server has no PG NOTIFY listener, so the cache
 // relies on TTL for freshness.
 func (r *ClusterServer) InitAlarmDictCache() {
-	r.AlarmDicts = cache.NewCacheEntry("cluster-alarm-dictionaries", 5*time.Minute, func(ctx context.Context) (AlarmDictData, error) {
+	r.AlarmDicts = cache.NewEntry("cluster-alarm-dictionaries", 5*time.Minute, func(ctx context.Context) (AlarmDictData, error) {
 		records, err := r.Repo.GetAlarmDictionaries(ctx)
 		if err != nil {
 			return AlarmDictData{}, fmt.Errorf("failed to get alarm dictionaries: %w", err)

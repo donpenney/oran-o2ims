@@ -101,6 +101,26 @@ var _ = Describe("Cluster Server", func() {
 		})
 	})
 
+	Describe("Alarm dictionary cache mid-loader failure", func() {
+		It("returns 500 when alarm definitions query fails during cache load", func() {
+			dictID := uuid.New()
+			mockRepo.EXPECT().
+				GetAlarmDictionaries(ctx).
+				Return([]models.AlarmDictionary{{AlarmDictionaryID: dictID}}, nil)
+			mockRepo.EXPECT().
+				GetThanosAlarmDefinitions(ctx).
+				Return([]models.AlarmDefinition{}, nil)
+			mockRepo.EXPECT().
+				GetAlarmDefinitionsByAlarmDictionaryID(ctx, dictID).
+				Return(nil, fmt.Errorf("definitions query failed"))
+
+			resp, err := server.GetAlarmDictionaries(ctx, apigenerated.GetAlarmDictionariesRequestObject{})
+
+			Expect(err).To(BeNil())
+			Expect(resp).To(BeAssignableToTypeOf(apigenerated.GetAlarmDictionaries500ApplicationProblemPlusJSONResponse{}))
+		})
+	})
+
 	Describe("GetAlarmDictionaries", func() {
 		When("cache loading fails", func() {
 			It("returns internal server error", func() {

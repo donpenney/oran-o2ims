@@ -12,25 +12,25 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 func TestCache(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Cache Suite")
+	RegisterFailHandler(ginkgo.Fail)
+	ginkgo.RunSpecs(t, "Cache Suite")
 }
 
-var _ = Describe("Entry", func() {
+var _ = ginkgo.Describe("Entry", func() {
 	var ctx context.Context
 
-	BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		ctx = context.Background()
 	})
 
-	It("loads data on first Get", func() {
+	ginkgo.It("loads data on first Get", func() {
 		callCount := 0
-		entry := NewCacheEntry("test", 0, func(_ context.Context) (string, error) {
+		entry := NewEntry("test", 0, func(_ context.Context) (string, error) {
 			callCount++
 			return "hello", nil
 		})
@@ -41,9 +41,9 @@ var _ = Describe("Entry", func() {
 		Expect(callCount).To(Equal(1))
 	})
 
-	It("returns cached data on subsequent Gets", func() {
+	ginkgo.It("returns cached data on subsequent Gets", func() {
 		callCount := 0
-		entry := NewCacheEntry("test", 0, func(_ context.Context) (string, error) {
+		entry := NewEntry("test", 0, func(_ context.Context) (string, error) {
 			callCount++
 			return "hello", nil
 		})
@@ -57,9 +57,9 @@ var _ = Describe("Entry", func() {
 		Expect(callCount).To(Equal(1))
 	})
 
-	It("reloads after Invalidate", func() {
+	ginkgo.It("reloads after Invalidate", func() {
 		callCount := 0
-		entry := NewCacheEntry("test", 0, func(_ context.Context) (int, error) {
+		entry := NewEntry("test", 0, func(_ context.Context) (int, error) {
 			callCount++
 			return callCount, nil
 		})
@@ -74,9 +74,9 @@ var _ = Describe("Entry", func() {
 		Expect(callCount).To(Equal(2))
 	})
 
-	It("reloads after TTL expires", func() {
+	ginkgo.It("reloads after TTL expires", func() {
 		callCount := 0
-		entry := NewCacheEntry("test", 50*time.Millisecond, func(_ context.Context) (int, error) {
+		entry := NewEntry("test", 50*time.Millisecond, func(_ context.Context) (int, error) {
 			callCount++
 			return callCount, nil
 		})
@@ -90,9 +90,9 @@ var _ = Describe("Entry", func() {
 		Expect(r2).To(Equal(2))
 	})
 
-	It("does not reload before TTL expires", func() {
+	ginkgo.It("does not reload before TTL expires", func() {
 		callCount := 0
-		entry := NewCacheEntry("test", time.Hour, func(_ context.Context) (int, error) {
+		entry := NewEntry("test", time.Hour, func(_ context.Context) (int, error) {
 			callCount++
 			return callCount, nil
 		})
@@ -102,8 +102,8 @@ var _ = Describe("Entry", func() {
 		Expect(callCount).To(Equal(1))
 	})
 
-	It("propagates loader errors", func() {
-		entry := NewCacheEntry("test", 0, func(_ context.Context) (string, error) {
+	ginkgo.It("propagates loader errors", func() {
+		entry := NewEntry("test", 0, func(_ context.Context) (string, error) {
 			return "", fmt.Errorf("db error")
 		})
 
@@ -112,9 +112,9 @@ var _ = Describe("Entry", func() {
 		Expect(err.Error()).To(ContainSubstring("db error"))
 	})
 
-	It("retries after a failed load", func() {
+	ginkgo.It("retries after a failed load", func() {
 		callCount := 0
-		entry := NewCacheEntry("test", 0, func(_ context.Context) (string, error) {
+		entry := NewEntry("test", 0, func(_ context.Context) (string, error) {
 			callCount++
 			if callCount == 1 {
 				return "", fmt.Errorf("transient error")
@@ -130,12 +130,12 @@ var _ = Describe("Entry", func() {
 		Expect(result).To(Equal("recovered"))
 	})
 
-	It("works with struct types", func() {
+	ginkgo.It("works with struct types", func() {
 		type data struct {
 			Items []string
 			Count int
 		}
-		entry := NewCacheEntry("test", 0, func(_ context.Context) (data, error) {
+		entry := NewEntry("test", 0, func(_ context.Context) (data, error) {
 			return data{Items: []string{"a", "b"}, Count: 2}, nil
 		})
 
