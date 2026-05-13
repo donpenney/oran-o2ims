@@ -427,6 +427,22 @@ func (t *TUIFormatter) cleanupDeletedResources() {
 	}
 }
 
+// clearEventsForType removes all events of a specific CRD type from the display.
+// Used to ensure stale data is removed before adding a fresh batch (e.g., alarms
+// that may have been filtered out on refresh).
+func (t *TUIFormatter) clearEventsForType(crdType string) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	filtered := t.events[:0]
+	for _, event := range t.events {
+		if event.CRDType != crdType {
+			filtered = append(filtered, event)
+		}
+	}
+	t.events = filtered
+}
+
 // cleanupStaleInventoryObjects performs immediate cleanup of stale inventory objects only
 func (t *TUIFormatter) cleanupStaleInventoryObjects() {
 	if t.verifyFunc == nil {
